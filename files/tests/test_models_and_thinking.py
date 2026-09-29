@@ -5,6 +5,7 @@ import time
 import pytest
 
 import web_server as ws
+import services as sv
 from llm_interface import LLMError, LLMInterface, ThinkFilter, strip_thinking
 from model_manager import ModelManager, same_model
 
@@ -160,12 +161,12 @@ def test_saved_choice_is_read_by_config(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(fake_ollama):
-    original = ws.llm_interface.model_name
-    ws.model_manager.download = None
-    ws.conversation_history.start_new_conversation()
+    original = sv.llm_interface.model_name
+    sv.model_manager.download = None
+    sv.conversation_history.start_new_conversation()
     yield ws.app.test_client()
-    ws.llm_interface.model_name = original
-    ws.model_manager.download = None
+    sv.llm_interface.model_name = original
+    sv.model_manager.download = None
 
 
 def sse_events(response):
@@ -174,7 +175,7 @@ def sse_events(response):
 
 def test_models_endpoint(client, fake_ollama):
     data = client.get("/api/models").get_json()
-    assert data["success"] and data["current"] == ws.llm_interface.model_name
+    assert data["success"] and data["current"] == sv.llm_interface.model_name
     assert data["installed"][0]["name"] == "mistral:latest" and len(data["suggestions"]) >= 4
 
 
@@ -200,11 +201,11 @@ def test_streaming_hides_thinking(client, fake_ollama):
     events = sse_events(client.post("/api/chat-stream", json={"message": "greet me"}))
     assert {"thinking": True} in events
     assert "".join(e.get("token", "") for e in events) == "Hello there!"
-    assert ws.conversation_history.get_all_messages(limit=1)[0]["content"] == "Hello there!"
+    assert sv.conversation_history.get_all_messages(limit=1)[0]["content"] == "Hello there!"
 
 
 def test_thinking_model_can_still_search(client, fake_ollama, monkeypatch):
-    monkeypatch.setattr(ws.web_searcher, "search", lambda q, num_results=5: f"RESULTS {q}")
+    monkeypatch.setattr(sv.web_searcher, "search", lambda q, num_results=5: f"RESULTS {q}")
     fake_ollama.replies = ["<think>I don't know this.</think> SEARCH: population of Vilnius",
                            "<think>Found it.</think> About 600,000 people."]
     events = sse_events(client.post("/api/chat-stream", json={"message": "How many people live in Vilnius?"}))

@@ -258,11 +258,3 @@ class LLMInterface:
     def unload_model(self, name):
         """Free the memory a model uses (Ollama unloads it when keep_alive is 0)."""
         return self._load_or_unload(name, keep_alive=0)
-
-    def test_model(self):
-        """Test the model with a simple request."""
-        print(f"Testing {self.model_name}...")
-        try:
-            print(f"Model response: {self.generate_response('Say hello and nothing else.')}\n")
-        except LLMError as e:
-            print(f"✗ {e}\n")

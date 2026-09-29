@@ -235,31 +235,10 @@ def test_plan_score_and_report(project, tmp_path):
 def test_improver(project, tmp_path):
     analyzer = SelfAnalyzer(project, tmp_path / "logs")
     learner = LearningSystem(tmp_path / "logs")
-    improver = AutonomousImprover(analyzer, learner, tmp_path / "logs")
+    improver = AutonomousImprover(analyzer, learner)
     proposals = improver.analyze_and_propose()
     assert any(p["type"] == "bug_fix" for p in proposals)
     text = improver.format_improvement_suggestions(proposals)
     assert "AUTONOMOUS IMPROVEMENT SUGGESTIONS" in text and "BUG_FIX" in text
 
-    guide = improver.create_improvement_file()
-    assert set(guide) >= {"code_quality_score", "total_issues", "proposals", "learning_insights", "instructions"}
-    assert "sample.py" in guide["instructions"]
 
-    item_id = improver.queue_improvement(proposals[0])
-    assert improver.get_next_improvement()["id"] == item_id
-    assert "UPGRADE_REQUEST" in improver.generate_improvement_prompt(improver.get_next_improvement())
-    improver.log_improvement_applied(item_id, "sample.py", True)
-    assert improver.get_next_improvement() is None
-    assert AutonomousImprover(analyzer, learner, tmp_path / "logs").history[0]["success"] is True
-
-
-def test_improver_prompt_types(tmp_path):
-    improver = AutonomousImprover(data_dir=tmp_path)
-    for kind in ["code_quality", "bug_fix", "feature_enhancement", "other"]:
-        prompt = improver.generate_improvement_prompt({"proposal": {"type": kind, "description": "d"}})
-        assert "d" in prompt
-
-
-def test_improver_corrupt_queue(tmp_path):
-    (tmp_path / "improvement_queue.json").write_text("[broken")
-    assert AutonomousImprover(data_dir=tmp_path).queue == []

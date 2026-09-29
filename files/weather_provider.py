@@ -51,11 +51,6 @@ class WeatherProvider:
             part for part in (best.get('name'), best.get('admin1'), best.get('country')) if part))
         return {'latitude': best['latitude'], 'longitude': best['longitude'], 'label': label}
 
-    def get_coordinates(self, city_name):
-        """Get (latitude, longitude) for a city, or None if it can't be found"""
-        place = self.find_place(city_name)
-        return (place['latitude'], place['longitude']) if place else None
-
     def _forecast(self, place, params):
         """Call the forecast API for a place found by find_place()"""
         response = requests.get(self.weather_url, params={

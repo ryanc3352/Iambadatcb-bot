@@ -13,113 +13,83 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h1>🤖 AI Assistant</h1>
-                <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">
-                    🌙
-                </button>
+                <button class="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">🌙</button>
             </div>
 
-            <!-- MODEL -->
-            <button id="model-btn" class="btn-secondary" onclick="showModelPanel()" style="width: 100%; margin-bottom: 8px;" title="Change the AI model">
+            <button id="model-btn" class="btn-secondary btn-block" onclick="showModelPanel()" title="Change the AI model">
                 🧠 Model
             </button>
-
-            <!-- LOGS FOR TROUBLESHOOTING -->
-            <button id="logs-btn" class="btn-secondary" onclick="downloadLogs()" style="width: 100%; margin-bottom: 8px;"
+            <button id="logs-btn" class="btn-secondary btn-block" onclick="downloadLogs()"
                     title="Something went wrong? Downloads the last 5 minutes of logs (including your recent messages) to send to whoever helps you">
                 🐞 Problem? Get logs
             </button>
+            <button class="btn-new-conv" onclick="newConversation()">➕ New Conversation</button>
 
-            <!-- NEW CONVERSATION -->
-            <button class="btn-new-conv" onclick="newConversation()">
-                ➕ New Conversation
-            </button>
+            <hr>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
-
-            <!-- CONVERSATION HISTORY -->
             <div class="section">
                 <h3>💬 History</h3>
-                <div id="conversations-list" style="max-height: 200px; overflow-y: auto;">
-                    <p style="font-size: 12px; color: var(--text-secondary);">No conversations yet</p>
+                <div id="conversations-list" class="scroll-list">
+                    <p class="hint">No conversations yet</p>
                 </div>
             </div>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+            <hr>
 
-            <!-- KNOWLEDGE BASE -->
             <div class="section">
                 <h3>📚 Knowledge Base</h3>
-                <button class="btn-secondary" onclick="document.getElementById('file-input').click()" style="width: 100%; margin-bottom: 8px;">
+                <button class="btn-secondary btn-block" onclick="document.getElementById('file-input').click()">
                     📤 Upload Documents
                 </button>
-                <input type="file" id="file-input" style="display:none;" accept=".pdf,.docx,.txt,.md,.csv,.log,.json,.xml,.yaml,.yml,.toml,.ini,.cfg,.html,.css,.js,.ts,.py,.sql,.sh,.bat,.ps1" onchange="uploadDocument(event)">
-                <button class="btn-secondary" onclick="loadDocumentsList()" style="width: 100%;">
-                    📋 View Docs
-                </button>
+                <input type="file" id="file-input" hidden onchange="uploadDocument(event)"
+                       accept=".pdf,.docx,.txt,.md,.csv,.log,.json,.xml,.yaml,.yml,.toml,.ini,.cfg,.html,.css,.js,.ts,.py,.sql,.sh,.bat,.ps1">
+                <button class="btn-secondary btn-block" onclick="loadDocumentsList()">📋 View Docs</button>
             </div>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+            <hr>
 
-            <!-- FOLDER ACCESS -->
             <div class="section">
                 <h3>📁 Folder Access</h3>
-                <button class="btn-secondary" onclick="document.getElementById('folder-pick-input').click()" style="width: 100%; margin-bottom: 8px;">
+                <button class="btn-secondary btn-block" onclick="document.getElementById('folder-pick-input').click()">
                     📂 Add Folder
                 </button>
-                <input type="file" id="folder-pick-input" style="display:none;" webkitdirectory multiple onchange="uploadFolderFiles(event)">
-                <button class="btn-secondary" onclick="document.getElementById('folder-input').click()" style="width: 100%; margin-bottom: 8px;">
+                <input type="file" id="folder-pick-input" hidden webkitdirectory multiple onchange="uploadFolderFiles(event)">
+                <button class="btn-secondary btn-block" onclick="document.getElementById('folder-input').click()">
                     🗜️ Add Folder (.zip)
                 </button>
-                <input type="file" id="folder-input" style="display:none;" accept=".zip" onchange="uploadFolder(event)">
-                <button class="btn-secondary" onclick="loadFoldersList()" style="width: 100%; margin-bottom: 8px;">
-                    📂 Refresh Folders
-                </button>
-                <div id="folders-list" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 5px; padding: 8px;">
-                    <p style="font-size: 12px; color: var(--text-secondary);">No folders uploaded</p>
+                <input type="file" id="folder-input" hidden accept=".zip" onchange="uploadFolder(event)">
+                <button class="btn-secondary btn-block" onclick="loadFoldersList()">📂 Refresh Folders</button>
+                <div id="folders-list" class="scroll-list boxed">
+                    <p class="hint">No folders uploaded</p>
                 </div>
-                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
-                    💡 Tip: Select a folder to give AI access
-                </p>
+                <p class="hint tip">💡 Tip: Select a folder to give AI access</p>
             </div>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+            <hr>
 
-            <!-- MY FILES -->
             <div class="section">
                 <h3>📄 My Files</h3>
-                <div id="files-list" style="max-height: 200px; overflow-y: auto; font-size: 12px;">
-                    <p style="font-size: 12px; color: var(--text-secondary);">No files yet. Ask the AI to create one!</p>
+                <div id="files-list" class="scroll-list">
+                    <p class="hint">No files yet. Ask the AI to create one!</p>
                 </div>
-                <button class="btn-secondary" onclick="loadFilesList()" style="width: 100%; margin-top: 6px; font-size: 12px;">
-                    🔄 Refresh Files
-                </button>
+                <button class="btn-secondary btn-block btn-small" onclick="loadFilesList()">🔄 Refresh Files</button>
             </div>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+            <hr>
 
-            <!-- SELF-IMPROVEMENT -->
             <div class="section">
                 <h3>🤖 Self-Improvement</h3>
-                <button class="btn-secondary" onclick="analyzeMyself()" style="width: 100%; margin-bottom: 5px; font-size: 12px;">
-                    📊 Code Quality
-                </button>
-                <button class="btn-secondary" onclick="showLearning()" style="width: 100%; margin-bottom: 5px; font-size: 12px;">
-                    📈 Learning Stats
-                </button>
-                <button class="btn-secondary" onclick="showImprovements()" style="width: 100%; margin-bottom: 5px; font-size: 12px;">
-                    💡 Suggestions
-                </button>
-                <button class="btn-secondary" onclick="selfImprove()" style="width: 100%; font-size: 12px;">
-                    🚀 Auto-Improve
-                </button>
+                <button class="btn-secondary btn-block btn-small" onclick="analyzeMyself()">📊 Code Quality</button>
+                <button class="btn-secondary btn-block btn-small" onclick="showLearning()">📈 Learning Stats</button>
+                <button class="btn-secondary btn-block btn-small" onclick="showImprovements()">💡 Suggestions</button>
+                <button class="btn-secondary btn-block btn-small" onclick="selfImprove()">🚀 Auto-Improve</button>
             </div>
 
-            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+            <hr>
 
-            <!-- STATS -->
             <div class="section" id="stats-section">
                 <h3>📊 Stats</h3>
-                <div style="font-size: 12px; line-height: 1.8;">
+                <div class="stats">
                     <p>💬 Messages: <span id="msg-count">0</span></p>
                     <p>📁 Files: <span id="file-count">0</span></p>
                     <p>⚡ Code Runs: <span id="code-count">0</span></p>
@@ -127,9 +97,8 @@
             </div>
         </aside>
 
-        <!-- MAIN CHAT AREA -->
+        <!-- CHAT -->
         <main class="main-content">
-            <!-- CHAT MESSAGES -->
             <div id="chat-area" class="chat-area">
                 <div class="message assistant">
                     <div class="content">
@@ -149,94 +118,82 @@
                 </div>
             </div>
 
-            <!-- INPUT AREA -->
             <div class="input-section">
-                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                    <button id="feedback-btn" class="btn-feedback" onclick="showFeedbackPanel()" style="flex: 1; display: none;">
+                <div class="input-row buttons">
+                    <button id="feedback-btn" class="btn-feedback" onclick="showFeedbackPanel()" hidden>
                         ⭐ Rate Last Response
                     </button>
-                    <button id="folder-btn" class="btn-feedback" onclick="selectFolderMode()" style="flex: 1;" title="Chat with folder context">
+                    <button id="folder-btn" class="btn-feedback" onclick="selectFolderMode()" title="Chat with folder context">
                         📁 With Folder
                     </button>
                 </div>
-                
-                <div style="display: flex; gap: 8px;">
-                    <input 
-                        type="text" 
-                        id="message-input" 
-                        class="message-input" 
-                        placeholder="Ask anything... (uses documents, web search, code execution)"
-                        onkeypress="handleKeyPress(event)"
-                    >
-                    <button id="send-btn" class="btn-send" onclick="sendMessage()">
-                        📤 Send
-                    </button>
+                <div class="input-row">
+                    <input type="text" id="message-input" class="message-input" onkeydown="handleKeyPress(event)"
+                           placeholder="Ask anything... (uses documents, web search, code execution)">
+                    <button id="send-btn" class="btn-send" onclick="sendMessage()">📤 Send</button>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- FEEDBACK PANEL (Hidden by default) -->
-    <div id="feedback-panel" class="modal" style="display: none;">
+    <!-- RATE AN ANSWER -->
+    <div id="feedback-panel" class="modal" hidden>
         <div class="modal-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div class="modal-header">
                 <h3>Rate This Response</h3>
-                <button onclick="closeFeedbackPanel()" style="background: none; border: none; font-size: 20px; cursor: pointer;">✕</button>
+                <button class="modal-close" onclick="closeFeedbackPanel()">✕</button>
             </div>
-            
-            <div style="display: flex; gap: 10px; margin-bottom: 15px; justify-content: center;">
+            <div class="rating-row">
                 <button onclick="rateResponse(1)" class="rating-btn">⭐</button>
                 <button onclick="rateResponse(2)" class="rating-btn">⭐⭐</button>
                 <button onclick="rateResponse(3)" class="rating-btn">⭐⭐⭐</button>
                 <button onclick="rateResponse(4)" class="rating-btn">⭐⭐⭐⭐</button>
                 <button onclick="rateResponse(5)" class="rating-btn">⭐⭐⭐⭐⭐</button>
             </div>
-            
-            <textarea 
-                id="feedback-text" 
-                placeholder="Optional: Tell me how to improve..." 
-                style="width: 100%; height: 80px; padding: 10px; border: 1px solid var(--border-color); border-radius: 5px; margin-bottom: 15px; font-family: inherit;"
-            ></textarea>
-            
-            <button onclick="submitFeedback()" class="btn-send" style="width: 100%;">
-                Submit Feedback
-            </button>
+            <textarea id="feedback-text" class="feedback-text" placeholder="Optional: Tell me how to improve..."></textarea>
+            <button onclick="submitFeedback()" class="btn-send btn-full">Submit Feedback</button>
         </div>
     </div>
 
-    <!-- MODEL PANEL (Hidden by default) -->
-    <div id="model-panel" class="modal" style="display: none;">
-        <div class="modal-content" style="max-width: 560px; width: 92%; max-height: 85vh; overflow-y: auto;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <!-- CHOOSE A MODEL -->
+    <div id="model-panel" class="modal" hidden>
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
                 <h3>🧠 Choose a model</h3>
-                <button onclick="closeModelPanel()" style="background: none; border: none; font-size: 20px; cursor: pointer;">✕</button>
+                <button class="modal-close" onclick="closeModelPanel()">✕</button>
             </div>
-            <p id="model-current" style="font-size: 13px; margin-bottom: 10px;"></p>
-            <p id="model-error" style="font-size: 13px; color: #ff6b6b; margin-bottom: 10px; display: none;"></p>
+            <p id="model-current" class="small-text"></p>
+            <p id="model-error" class="small-text error-text" hidden></p>
 
-            <div id="model-download" style="display: none; margin-bottom: 12px;">
-                <div style="height: 10px; background: var(--border-color); border-radius: 5px; overflow: hidden;">
-                    <div id="model-progress-bar" style="height: 100%; width: 0%; background: var(--accent-1); transition: width 0.3s;"></div>
-                </div>
-                <p id="model-download-text" style="font-size: 12px; margin-top: 5px;"></p>
+            <div id="model-download" class="model-download" hidden>
+                <div class="progress"><div id="model-progress-bar" class="progress-bar"></div></div>
+                <p id="model-download-text" class="hint"></p>
             </div>
 
-            <h4 style="margin: 10px 0 6px;">Downloaded</h4>
-            <div id="model-installed" style="font-size: 13px;"></div>
+            <h4>Downloaded</h4>
+            <div id="model-installed" class="model-list"></div>
 
-            <h4 style="margin: 14px 0 6px;">Download another model</h4>
-            <div id="model-suggestions" style="font-size: 13px;"></div>
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-                <input id="model-name-input" class="message-input" placeholder="Any Ollama model, e.g. phi4-mini" style="flex: 1;"
+            <h4>Download another model</h4>
+            <div id="model-suggestions" class="model-list"></div>
+            <div class="input-row model-name-row">
+                <input id="model-name-input" class="message-input" placeholder="Any Ollama model, e.g. phi4-mini"
                        onkeydown="if (event.key === 'Enter') selectModel(this.value)">
                 <button class="btn-send" onclick="selectModel(document.getElementById('model-name-input').value)">Use</button>
             </div>
-            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+            <p class="hint tip">
                 Switching unloads the previous model from memory. Models that aren't downloaded yet are downloaded first.
             </p>
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <!-- In this order: core first (shared helpers), main last (start-up) -->
+    <script src="{{ url_for('static', filename='js/core.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/cards.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sidebar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/improve.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/models.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

@@ -11,14 +11,11 @@ def fh(tmp_path):
     return FileHandler(tmp_path / "ai_files")
 
 
-def test_write_read_append_list_delete(fh):
-    fh.write_file("notes/a.txt", "hello")
-    fh.append_file("notes/a.txt", " world")
+def test_write_read_list_delete(fh):
+    fh.write_file("notes/a.txt", "hello world")
     assert fh.read_file("notes/a.txt") == "hello world"
     fh.write_file("top.txt", "x")
-    assert fh.list_files() == ["top.txt"]
-    assert fh.list_files("notes") == ["a.txt"]
-    assert fh.list_files("missing") == []
+    assert sorted(f["path"] for f in fh.list_all_files()) == ["notes/a.txt", "top.txt"]
     fh.delete_file("notes/a.txt")
     with pytest.raises(FileNotFoundError):
         fh.read_file("notes/a.txt")

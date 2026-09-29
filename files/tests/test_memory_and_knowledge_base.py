@@ -48,9 +48,6 @@ def test_memory_add_search_and_clear(tmp_path):
     assert mem.get_context_from_search("lists", top_k=10).count("\n") == 2
     assert mem.get_context_from_search("what is the capital of France?") == ""
 
-    mem.clear_memory()
-    assert mem.collection.count() == 0
-
 
 def test_chroma_client_is_shared(tmp_path):
     assert get_chroma_client(str(tmp_path)) is get_chroma_client(str(tmp_path))

@@ -70,9 +70,3 @@ def test_stream_unreachable_raises():
     with pytest.raises(LLMError):
         list(make("http://127.0.0.1:9").generate_response_stream("hi"))
 
-
-def test_test_model_prints(fake_ollama, capsys):
-    make(fake_ollama.url).test_model()
-    assert "Hello from the fake model!" in capsys.readouterr().out
-    make("http://127.0.0.1:9").test_model()
-    assert "✗" in capsys.readouterr().out

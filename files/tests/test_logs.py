@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 import web_server as ws
+import config
 from app_logging import recent_lines
 
 
@@ -45,6 +46,6 @@ def test_routine_requests_and_colour_codes_are_left_out():
     server.info('127.0.0.1 - - [x] "GET /api/stats HTTP/1.1" 200 -')
     server.info('127.0.0.1 - - [x] "\x1b[36mGET /static/a.js HTTP/1.1\x1b[0m" 304 -')
     server.info('127.0.0.1 - - [x] "\x1b[33mPOST /api/chat HTTP/1.1\x1b[0m" 500 -')
-    lines = "\n".join(recent_lines(ws.LOGS_PATH, 1))
+    lines = "\n".join(recent_lines(config.LOGS_PATH, 1))
     assert "GET /api/stats" not in lines and "GET /static/a.js" not in lines
     assert '"POST /api/chat HTTP/1.1" 500 -' in lines and "\x1b" not in lines

@@ -136,18 +136,3 @@ class ConversationHistory:
         except sqlite3.Error as e:
             print(f"Database error counting messages: {e}")
             return 0
-
-    def clear_history(self):
-        """Clear all conversation history.
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            with self._connect() as conn:
-                conn.execute('DELETE FROM conversation_history')
-                conn.commit()
-            return True
-        except sqlite3.Error as e:
-            print(f"Database error clearing history: {e}")
-            return False

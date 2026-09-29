@@ -53,21 +53,6 @@ class FileHandler:
         path.write_text(content, encoding='utf-8')
         return f"File written successfully: {path}"
 
-    def append_file(self, file_path, content):
-        """Append content to a file."""
-        path = self._resolve(file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'a', encoding='utf-8') as f:
-            f.write(content)
-        return f"Content appended successfully: {path}"
-
-    def list_files(self, directory=None):
-        """List file names in a directory (relative to the allowed directory)."""
-        target_dir = self._resolve(directory or ".")
-        if not target_dir.is_dir():
-            return []
-        return sorted(item.name for item in target_dir.iterdir() if item.is_file())
-
     def list_all_files(self):
         """Every file saved in the folder (including subfolders), newest first.
 

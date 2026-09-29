@@ -48,7 +48,6 @@ def test_find_place_and_qualifiers(fake_get):
     assert wp.find_place("London, Mars") is None
     assert wp.find_place("Nowhereville") is None
     assert wp.find_place(" , x") is None
-    assert wp.get_coordinates("London") == (51.5, -0.12)
     assert fake_get[1][1]["count"] == 10  # qualified lookups ask for several matches
 
 

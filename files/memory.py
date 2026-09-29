@@ -97,11 +97,3 @@ class Memory:
         except Exception as e:
             print(f"Error searching memory: {e}")
             return ""
-
-    def clear_memory(self):
-        """Clear all vector memory."""
-        try:
-            self.client.delete_collection(name="conversations")
-            self.collection = self._get_collection()
-        except Exception as e:
-            print(f"Error clearing memory: {e}")

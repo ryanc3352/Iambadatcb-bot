@@ -105,18 +105,25 @@ All optional. Create a text file named `.env` in the `files` folder:
 ```
 files/
   start.py / Start AI.bat   one-click setup and start
-  web_server.py             Flask app and all /api endpoints
+  web_server.py             the Flask app: the page, error handling, the routes below
+  routes_chat.py            chat, running approved code, history, stats, feedback
+  routes_files.py           saved files, uploaded documents, project folders
+  routes_improve.py         self-improvement and upgrades
+  routes_system.py          models and the 🐞 logs
+  services.py               the shared parts (model, memory, files...), created once
+  prompts.py                what the model is told with each question
+  answers.py                getting answers (with a web search when needed) and saving them
+  file_offers.py            files the AI offers to save, even when the model won't use the format
   config.py                 settings and the system prompt
   llm_interface.py          talks to Ollama
+  model_manager.py          switching, downloading and unloading models
   memory.py                 long-term memory (ChromaDB)
   knowledge_base.py         uploaded documents (ChromaDB)
   calculator.py             exact arithmetic and equation solving
-  model_manager.py          switching, downloading and unloading models
   web_search.py             web search (ddgs, Wikipedia, DuckDuckGo instant answers)
   weather_provider.py       Open-Meteo weather
   app_logging.py            the log file behind the 🐞 button
-  ...                       one module per feature
-  templates/, static/       the web page
+  templates/, static/       the web page (static/js has one script per part of the page)
   tests/                    automated tests (fake Ollama server)
 ```
 
@@ -131,4 +138,5 @@ cd files
 The tests use a fake model server and never touch your real chats or files. They also run
 automatically on Windows and Linux for every push (see the badge above).
 
-`python main.py` starts a simple text-only chat in the terminal (no documents, search or tools).
+`python main.py` chats in the terminal with the same memory, documents, maths and web search
+(no Save cards or code running).

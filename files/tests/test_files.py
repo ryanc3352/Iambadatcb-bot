@@ -5,14 +5,16 @@ import json
 import pytest
 
 import web_server as ws
+import file_offers
+import services as sv
 from file_handler import FileHandler
 
 
 @pytest.fixture
 def client(fake_ollama):
-    ws.conversation_history.start_new_conversation()
-    for f in ws.file_handler.list_all_files():  # start each test with an empty ai_files
-        ws.file_handler.delete_file(f["path"])
+    sv.conversation_history.start_new_conversation()
+    for f in sv.file_handler.list_all_files():  # start each test with an empty ai_files
+        sv.file_handler.delete_file(f["path"])
     return ws.app.test_client()
 
 
@@ -79,7 +81,7 @@ def test_unsafe_save_paths_are_dropped(client, fake_ollama):
 def test_save_list_download_delete(client):
     saved = client.post("/api/files/save", json={"path": "shopping/list.txt", "content": "milk\neggs 🥚"}).get_json()
     assert saved["success"] and saved["path"] == "shopping/list.txt"
-    assert saved["message"] == f"✅ Saved shopping/list.txt (on your PC: {ws.file_handler.allowed_directory / 'shopping/list.txt'})"
+    assert saved["message"] == f"✅ Saved shopping/list.txt (on your PC: {sv.file_handler.allowed_directory / 'shopping/list.txt'})"
     assert [f["path"] for f in client.get("/api/files").get_json()["files"]] == ["shopping/list.txt"]
     assert client.get("/api/stats").get_json()["files"] == 1
 
@@ -120,13 +122,13 @@ def test_existing_files_are_shown_to_the_model(client, fake_ollama):
 def test_windows_write_errors_get_a_hint(client, monkeypatch):
     def blocked(path, content):
         raise PermissionError(13, "Access is denied", path)
-    monkeypatch.setattr(ws.file_handler, "write_file", blocked)
+    monkeypatch.setattr(sv.file_handler, "write_file", blocked)
     response = client.post("/api/files/save", json={"path": "a.txt", "content": "x"})
     assert response.status_code == 500 and "Controlled folder access" in response.get_json()["error"]
 
     def our_check(path, content):
         raise PermissionError("Cannot access files outside the folder")
-    monkeypatch.setattr(ws.file_handler, "write_file", our_check)
+    monkeypatch.setattr(sv.file_handler, "write_file", our_check)
     response = client.post("/api/files/save", json={"path": "a.txt", "content": "x"})
     assert response.status_code == 403 and "Controlled" not in response.get_json()["error"]
 
@@ -182,7 +184,7 @@ def test_more_document_types(client):
     ("tell me a joke", False),
 ])
 def test_wants_file(message, expected):
-    assert ws.wants_file(message) is expected
+    assert file_offers.wants_file(message) is expected
 
 
 REFUSAL = ("I'm sorry, but I can't create files on your computer. You can create a file named "
@@ -193,6 +195,7 @@ def test_refusal_still_offers_the_file(client, fake_ollama):
     fake_ollama.reply = REFUSAL
     data = client.post("/api/chat", json={"message": "make me a shopping list file"}).get_json()
     assert data["files"] == [{"path": "shopping.txt", "content": "milk\neggs", "exists": False}]
+    assert data["has_code"] is False  # a list to save, not code to run
     done = sse_events(client.post("/api/chat-stream", json={"message": "make me a shopping list file"}))[-1]
     assert done["files"] == data["files"]
 
@@ -235,10 +238,10 @@ def test_existing_file_is_flagged(client, fake_ollama):
 
 def test_file_requests_end_with_a_reminder(client, fake_ollama):
     client.post("/api/chat", json={"message": "make me a shopping list file"})
-    assert fake_ollama.last_prompt.endswith(f"{ws.FILE_REQUEST_NOTE}\n\nUser: make me a shopping list file\nAssistant:")
+    assert fake_ollama.last_prompt.endswith(f"{file_offers.FILE_REQUEST_NOTE}\n\nUser: make me a shopping list file\nAssistant:")
     for message in ("how do I create a file in python?", "tell me a joke"):
         client.post("/api/chat", json={"message": message})
-        assert ws.FILE_REQUEST_NOTE not in fake_ollama.last_prompt
+        assert file_offers.FILE_REQUEST_NOTE not in fake_ollama.last_prompt
 
 
 def test_model_is_told_which_files_really_exist(client, fake_ollama):

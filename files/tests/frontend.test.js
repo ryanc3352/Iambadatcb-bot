@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-// Load script.js with just enough of a fake browser for its top-level code to run
+// Load the page's scripts with just enough of a fake browser for their top-level code to run
 const element = () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {} });
 const context = {
     document: { getElementById: element, addEventListener() {}, body: element() },
@@ -14,7 +14,11 @@ const context = {
     console: { log() {}, warn() {}, error() {} },
 };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'static', 'js', 'script.js'), 'utf8'), context);
+// The page's scripts, in the order index.html loads them
+const page = fs.readFileSync(path.join(__dirname, '..', 'templates', 'index.html'), 'utf8');
+for (const [, name] of page.matchAll(/filename='js\/([\w-]+\.js)'/g)) {
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'static', 'js', name), 'utf8'), context, { filename: name });
+}
 const { escapeHtml, renderText, parseUpgradeRequest } = context;
 
 test('escapeHtml neutralises HTML', () => {
@@ -50,4 +54,10 @@ test('failed requests are noted for the logs button', async () => {
     await context.window.fetch('/api/chat', { method: 'POST' });
     assert.match(context.recentPageEvents(5).join('\n'), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d POST \/api\/chat → HTTP 500$/m);
     assert.strictEqual(context.localStamp(new Date(2026, 8, 29, 7, 5, 3).getTime()), '2026-09-29 07:05:03');
+});
+
+test('every button in the page calls a function that exists', () => {
+    const called = [...page.matchAll(/on(?:click|change|keydown)="(?:if \([^)]*\) )?([A-Za-z_]\w*)\(/g)].map(m => m[1]);
+    assert.ok(called.length > 20);
+    assert.deepStrictEqual(called.filter(name => name !== 'document' && typeof context[name] !== 'function'), []);
 });

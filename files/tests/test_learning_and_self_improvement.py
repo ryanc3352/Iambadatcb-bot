@@ -5,6 +5,10 @@ import shutil
 import pytest
 
 import web_server as ws
+import prompts
+import config
+import routes_improve
+import services as sv
 from autonomous_improver import AutonomousImprover
 from conftest import FakeResponse
 from learning_system import LearningSystem
@@ -14,7 +18,7 @@ from upgrade_manager import UpgradeManager
 
 @pytest.fixture
 def client(fake_ollama):
-    ws.conversation_history.start_new_conversation()
+    sv.conversation_history.start_new_conversation()
     return ws.app.test_client()
 
 
@@ -47,20 +51,20 @@ def test_feedback_changes_later_prompts(client, fake_ollama):
     assert "2/5 on \"Recursion is when a function calls itself." in prompt
     assert "Too long, use short bullet points" in prompt
 
-    saved = ws.learner.learning_data["user_feedback"][-1]
+    saved = sv.learner.learning_data["user_feedback"][-1]
     assert saved["response_excerpt"].startswith("Recursion is when") and "\n" not in saved["response_excerpt"]
 
 
 def test_usage_is_tracked(client, fake_ollama, monkeypatch):
-    monkeypatch.setattr(ws.weather_provider, "get_weather", lambda place: "sunny")
-    monkeypatch.setattr(ws.web_searcher, "search", lambda q, num_results=5: "results")
+    monkeypatch.setattr(sv.weather_provider, "get_weather", lambda place: "sunny")
+    monkeypatch.setattr(sv.web_searcher, "search", lambda q, num_results=5: "results")
     before = client.get("/api/self/learning").get_json()["insights"]
     chat(client, "weather in Rome")
     chat(client, "latest news")
     client.post("/api/execute-code", json={"code": "print(1)"})
     after = client.get("/api/self/learning").get_json()["insights"]
     assert after["total_conversations"] == before["total_conversations"] + 2
-    usage = ws.learner.learning_data["feature_usage"]
+    usage = sv.learner.learning_data["feature_usage"]
     assert usage["weather"] >= 1 and usage["web_search"] >= 1 and usage["code_execution"] >= 1
 
 
@@ -112,22 +116,23 @@ def sandbox(tmp_path, monkeypatch):
     """A temporary copy of the project, so upgrades never touch the real files."""
     project = tmp_path / "project"
     project.mkdir()
-    for py_file in ws.BASE_DIR.glob("*.py"):
+    for py_file in config.BASE_DIR.glob("*.py"):
         shutil.copy2(py_file, project / py_file.name)
     (project / "web_search.py").write_text(BAD_SEARCH, encoding="utf-8")
 
     analyzer = SelfAnalyzer(project, tmp_path / "logs")
-    monkeypatch.setattr(ws, "UPGRADEABLE_FILES", ["web_search.py"])
-    monkeypatch.setattr(ws, "analyzer", analyzer)
-    monkeypatch.setattr(ws, "improver", AutonomousImprover(analyzer, ws.learner, tmp_path / "logs"))
-    monkeypatch.setattr(ws, "upgrade_manager",
-                        UpgradeManager(project, tmp_path / "backups", allowed_files=["web_search.py"]))
+    manager = UpgradeManager(project, tmp_path / "backups", allowed_files=["web_search.py"])
+    for module in (prompts, routes_improve):  # the chat shows the file's code, the routes upgrade it
+        monkeypatch.setattr(module, "UPGRADEABLE_FILES", ["web_search.py"])
+        monkeypatch.setattr(module, "upgrade_manager", manager)
+    monkeypatch.setattr(routes_improve, "analyzer", analyzer)
+    monkeypatch.setattr(routes_improve, "improver", AutonomousImprover(analyzer, sv.learner))
     return project
 
 
 def test_auto_improve_uses_current_code_and_really_improves_it(client, fake_ollama, sandbox, monkeypatch):
-    before = ws.analyzer.analyze_all_files()
-    score_before = ws.analyzer.get_code_quality_score(before)
+    before = routes_improve.analyzer.analyze_all_files()
+    score_before = routes_improve.analyzer.get_code_quality_score(before)
     issues_before = len(before["web_search.py"]["issues"])
 
     # 1. Auto-Improve picks the file and asks for a fix
@@ -149,12 +154,12 @@ def test_auto_improve_uses_current_code_and_really_improves_it(client, fake_olla
     }).get_json()
     assert applied["success"], applied
     assert (sandbox / "web_search.py").read_text(encoding="utf-8") == GOOD_SEARCH
-    assert len(ws.upgrade_manager.list_backups()) == 1
+    assert len(routes_improve.upgrade_manager.list_backups()) == 1
 
     # 4. The measured quality really went up
-    after = ws.analyzer.analyze_all_files()
+    after = routes_improve.analyzer.analyze_all_files()
     assert len(after["web_search.py"]["issues"]) < issues_before
-    assert ws.analyzer.get_code_quality_score(after) > score_before
+    assert routes_improve.analyzer.get_code_quality_score(after) > score_before
 
     # 5. The upgraded module still works
     spec = importlib.util.spec_from_file_location("upgraded_search", sandbox / "web_search.py")

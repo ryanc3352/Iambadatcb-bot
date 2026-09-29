@@ -40,13 +40,10 @@ def test_format_for_prompt_truncates(tmp_path):
     assert text == "User: " + "x" * 10 + "\n"
 
 
-def test_clear_and_persistence(tmp_path):
+def test_persistence(tmp_path):
     path = tmp_path / "h.db"
     ConversationHistory(path).add_message("User", "kept")
     assert ConversationHistory(path).count_messages() == 1
-    h = ConversationHistory(path)
-    assert h.clear_history() is True
-    assert h.count_messages() == 0
 
 
 def test_sql_injection_is_stored_as_text(tmp_path):
