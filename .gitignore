@@ -19,3 +19,4 @@ files_backup_original/
 # Tool output
 .pytest_cache/
 .playwright-mcp/
+files/logs/

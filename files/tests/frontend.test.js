@@ -10,6 +10,7 @@ const element = () => ({ style: {}, classList: { add() {}, remove() {}, toggle()
 const context = {
     document: { getElementById: element, addEventListener() {}, body: element() },
     localStorage: { getItem: () => null, setItem() {} },
+    window: { addEventListener() {}, fetch: async () => ({ ok: false, status: 500 }) },
     console: { log() {}, warn() {}, error() {} },
 };
 vm.createContext(context);
@@ -43,4 +44,10 @@ test('parseUpgradeRequest handles Windows line endings and missing fences', () =
 test('parseUpgradeRequest ignores normal messages', () => {
     assert.strictEqual(parseUpgradeRequest('Just a normal answer'), null);
     assert.strictEqual(parseUpgradeRequest('UPGRADE_REQUEST: FILE: a.py DESCRIPTION: d CODE:'), null);
+});
+
+test('failed requests are noted for the logs button', async () => {
+    await context.window.fetch('/api/chat', { method: 'POST' });
+    assert.match(context.recentPageEvents(5).join('\n'), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d POST \/api\/chat → HTTP 500$/m);
+    assert.strictEqual(context.localStamp(new Date(2026, 8, 29, 7, 5, 3).getTime()), '2026-09-29 07:05:03');
 });

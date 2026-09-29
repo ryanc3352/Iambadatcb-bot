@@ -6,11 +6,14 @@ unloaded from memory and the new one is loaded. The choice is saved, so the app
 starts with it next time.
 """
 import json
+import logging
 import re
 import threading
 from pathlib import Path
 
 from llm_interface import LLMError
+
+log = logging.getLogger("assistant.models")
 
 # Ollama names: "mistral", "qwen3:8b", "library/llama3.2", "hf.co/user/repo:Q4_K_M"
 MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/:]{0,199}$")
@@ -97,6 +100,7 @@ class ModelManager:
             if not any(same_model(m, name) for m in installed):
                 self.download = {'model': name, 'status': 'starting', 'completed': 0, 'total': 0,
                                  'done': False, 'error': None}
+                log.info("Downloading model %s", name)
                 threading.Thread(target=self._download_then_switch, args=(name,), daemon=True).start()
                 return {'action': 'downloading', 'message': f"Downloading {name}..."}
             if same_model(name, self.llm.model_name):
@@ -113,6 +117,7 @@ class ModelManager:
                 self._switch(name)
             self.download.update(status='success', done=True)
         except LLMError as e:
+            log.warning("Couldn't download model %s: %s", name, e)
             self.download.update(status='failed', error=str(e), done=True)
 
     def _switch(self, name):
@@ -120,6 +125,7 @@ class ModelManager:
         previous = self.llm.model_name
         self.llm.model_name = name
         self._save_model(name)
+        log.info("Switched model from %s to %s", previous, name)
         if previous and not same_model(previous, name):
             self.llm.unload_model(previous)
         # Load in the background so the first answer is quicker; the page doesn't wait for it

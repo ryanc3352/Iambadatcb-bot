@@ -54,11 +54,11 @@ REPLY = "Here you go:\nSAVE_FILE: shopping/list.txt\n```\nmilk\neggs\n```\nAnyth
 def test_chat_returns_files_to_save(client, fake_ollama):
     fake_ollama.reply = REPLY
     data = client.post("/api/chat", json={"message": "make me a shopping list file"}).get_json()
-    assert data["files"] == [{"path": "shopping/list.txt", "content": "milk\neggs"}]
+    assert data["files"] == [{"path": "shopping/list.txt", "content": "milk\neggs", "exists": False}]
     assert data["has_code"] is False  # file contents are saved, not run
 
     done = sse_events(client.post("/api/chat-stream", json={"message": "again"}))[-1]
-    assert done["files"] == [{"path": "shopping/list.txt", "content": "milk\neggs"}]
+    assert done["files"] == [{"path": "shopping/list.txt", "content": "milk\neggs", "exists": False}]
 
 
 @pytest.mark.parametrize("reply,path", [
@@ -78,7 +78,8 @@ def test_unsafe_save_paths_are_dropped(client, fake_ollama):
 
 def test_save_list_download_delete(client):
     saved = client.post("/api/files/save", json={"path": "shopping/list.txt", "content": "milk\neggs 🥚"}).get_json()
-    assert saved == {"success": True, "path": "shopping/list.txt", "message": "✅ Saved shopping/list.txt in your ai_files folder"}
+    assert saved["success"] and saved["path"] == "shopping/list.txt"
+    assert saved["message"] == f"✅ Saved shopping/list.txt (on your PC: {ws.file_handler.allowed_directory / 'shopping/list.txt'})"
     assert [f["path"] for f in client.get("/api/files").get_json()["files"]] == ["shopping/list.txt"]
     assert client.get("/api/stats").get_json()["files"] == 1
 
@@ -110,9 +111,10 @@ def test_existing_files_are_shown_to_the_model(client, fake_ollama):
     prompt = fake_ollama.last_prompt
     assert "Current content of shopping.txt:\n```\nmilk\nbread\n```" in prompt
     client.post("/api/chat", json={"message": "which files do I have?"})
-    assert "The user's saved files (in their ai_files folder): shopping.txt" in fake_ollama.last_prompt
+    assert "(the complete list: no other files exist there" in fake_ollama.last_prompt
+    assert "clicked Save): shopping.txt\n" in fake_ollama.last_prompt
     client.post("/api/chat", json={"message": "tell me a joke"})
-    assert "The user's saved files (in their" not in fake_ollama.last_prompt
+    assert "Files saved in the user's ai_files folder" not in fake_ollama.last_prompt
 
 
 def test_windows_write_errors_get_a_hint(client, monkeypatch):
@@ -161,3 +163,98 @@ def test_more_document_types(client):
                          content_type="multipart/form-data").get_json()
     assert upload["success"], upload
     client.delete("/api/knowledge-base/delete/people.csv")
+
+
+# ---------------- models that won't write SAVE_FILE blocks (mistral: "I can't create files, but you can...")
+
+@pytest.mark.parametrize("message,expected", [
+    ("make me a shopping list file", True),
+    ("Can you create a file with my todo list?", True),
+    ("save this as notes.md", True),
+    ("add eggs to shopping.txt", True),
+    ("write a poem and save it", True),
+    ("put that in a txt", True),
+    ("save my shopping list", True),
+    ("how do I create a file in python?", False),
+    ("what is in shopping.txt?", False),
+    ("I want to save money", False),
+    ("write a python function that adds two numbers", False),
+    ("tell me a joke", False),
+])
+def test_wants_file(message, expected):
+    assert ws.wants_file(message) is expected
+
+
+REFUSAL = ("I'm sorry, but I can't create files on your computer. You can create a file named "
+           "`shopping.txt` in Notepad and paste this:\n```\nmilk\neggs\n```\nThen save it.")
+
+
+def test_refusal_still_offers_the_file(client, fake_ollama):
+    fake_ollama.reply = REFUSAL
+    data = client.post("/api/chat", json={"message": "make me a shopping list file"}).get_json()
+    assert data["files"] == [{"path": "shopping.txt", "content": "milk\neggs", "exists": False}]
+    done = sse_events(client.post("/api/chat-stream", json={"message": "make me a shopping list file"}))[-1]
+    assert done["files"] == data["files"]
+
+
+def test_refusal_without_code_block_keeps_only_the_content(client, fake_ollama):
+    client.post("/api/files/save", json={"path": "notes.txt", "content": "old"})
+    fake_ollama.reply = "I can't create files, but here's your list:\n- milk\n- eggs\nYou can copy this into a text file."
+    files = client.post("/api/chat", json={"message": "make a file with milk and eggs"}).get_json()["files"]
+    assert files == [{"path": "notes_2.txt", "content": "- milk\n- eggs", "exists": False}]  # not over notes.txt
+
+
+@pytest.mark.parametrize("reply", [
+    "Sure! What should the file contain?",                # a question back: nothing to save yet
+    "I'm sorry, I can't create files on your computer.",  # only the refusal
+])
+def test_nothing_to_offer(client, fake_ollama, reply):
+    fake_ollama.reply = reply
+    assert client.post("/api/chat", json={"message": "create a file"}).get_json()["files"] == []
+
+
+def test_only_file_requests_get_an_offer(client, fake_ollama):
+    fake_ollama.reply = "```python\nprint(1 + 2)\n```"
+    data = client.post("/api/chat", json={"message": "write a python function that adds two numbers"}).get_json()
+    assert data["files"] == [] and data["has_code"] is True
+
+
+def test_folder_listing_is_not_saved_but_names_the_file(client, fake_ollama):
+    fake_ollama.reply = ("Done! Your folder now looks like this:\n```\n./ai_files/\n├── encrypt.py\n"
+                         "└── file_encryptor.py\n```\nHere is the code:\n```python\nprint('secret')\n```")
+    files = client.post("/api/chat", json={"message": "create a file that encrypts text"}).get_json()["files"]
+    assert files == [{"path": "file_encryptor.py", "content": "print('secret')", "exists": False}]
+
+
+def test_existing_file_is_flagged(client, fake_ollama):
+    client.post("/api/files/save", json={"path": "shopping.txt", "content": "milk"})
+    fake_ollama.reply = "SAVE_FILE: ai_files/shopping.txt\n```\nmilk\neggs\n```"
+    files = client.post("/api/chat", json={"message": "add eggs to shopping.txt"}).get_json()["files"]
+    assert files == [{"path": "shopping.txt", "content": "milk\neggs", "exists": True}]
+
+
+def test_file_requests_end_with_a_reminder(client, fake_ollama):
+    client.post("/api/chat", json={"message": "make me a shopping list file"})
+    assert fake_ollama.last_prompt.endswith(f"{ws.FILE_REQUEST_NOTE}\n\nUser: make me a shopping list file\nAssistant:")
+    for message in ("how do I create a file in python?", "tell me a joke"):
+        client.post("/api/chat", json={"message": message})
+        assert ws.FILE_REQUEST_NOTE not in fake_ollama.last_prompt
+
+
+def test_model_is_told_which_files_really_exist(client, fake_ollama):
+    client.post("/api/chat", json={"message": "what's in my folder?"})
+    assert "The user's ai_files folder is empty: no files have been saved yet." in fake_ollama.last_prompt
+    # After the model offered a file, the real list is shown even when the user doesn't mention files
+    fake_ollama.reply = "SAVE_FILE: plan.txt\n```\nstep 1\n```"
+    client.post("/api/chat", json={"message": "make a plan file"})
+    client.post("/api/files/save", json={"path": "real.txt", "content": "x"})
+    fake_ollama.reply = "ok"
+    client.post("/api/chat", json={"message": "thanks, what now?"})
+    assert "(the complete list: no other files exist there" in fake_ollama.last_prompt
+    assert "clicked Save): real.txt\n" in fake_ollama.last_prompt
+
+
+@pytest.mark.parametrize("raw,clean", [("ai_files/notes.txt", "notes.txt"), ("./ai_files/a/b.py", "a/b.py"),
+                                       ("ai_files", "ai_files")])
+def test_paths_inside_ai_files_are_not_nested(raw, clean):
+    assert FileHandler.clean_relative_path(raw) == clean

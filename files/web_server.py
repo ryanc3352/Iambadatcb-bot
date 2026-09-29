@@ -1,4 +1,6 @@
 import json
+import logging
+import platform
 import re
 import tempfile
 import zipfile
@@ -11,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 # config loads the .env file, so import it before anything that reads settings
 from config import (
-    BASE_DIR, DATABASE_PATH, VECTOR_DB_PATH, AI_FILES_PATH, BACKUPS_PATH,
+    BASE_DIR, DATABASE_PATH, VECTOR_DB_PATH, AI_FILES_PATH, BACKUPS_PATH, LOGS_PATH,
     OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, MODEL_CONTEXT_TOKENS, MODEL_TIMEOUT,
     CONTEXT_MESSAGES, SEARCH_TOP_K, SYSTEM_PROMPT,
     ENABLE_CODE_EXECUTION, CODE_EXECUTION_TIMEOUT, ENABLE_SELF_IMPROVEMENT, LEARNING_ENABLED,
@@ -33,6 +35,10 @@ from self_analyzer import SelfAnalyzer
 from learning_system import LearningSystem
 from autonomous_improver import AutonomousImprover
 from calculator import math_context
+from app_logging import setup_logging, recent_lines
+
+setup_logging(LOGS_PATH)  # before Flask sets up its own logger
+log = logging.getLogger("assistant")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
@@ -57,6 +63,7 @@ analyzer = SelfAnalyzer(BASE_DIR, BACKUPS_PATH)
 learner = LearningSystem(BACKUPS_PATH, enabled=LEARNING_ENABLED)
 improver = AutonomousImprover(analyzer, learner, BACKUPS_PATH)
 model_manager = ModelManager(llm_interface, USER_SETTINGS_PATH)
+log.info("App starting with model %s", llm_interface.model_name)
 
 WEATHER_KEYWORDS = ['weather', 'forecast', 'temperature', 'rain', 'snow', 'sunny', 'cloudy',
                     'celsius', 'fahrenheit', 'degrees', 'wind']
@@ -70,9 +77,33 @@ NOT_PLACES = {'a', 'an', 'my', 'your', 'our', 'their', 'this', 'that', 'some', '
 MAX_CODE_CONTEXT_CHARS = 12000
 # Files the AI saves for the user
 MAX_SAVED_FILE_CHARS = 1_000_000
-FILE_WORDS = ['file', 'files', 'save', 'saved', 'note', 'notes', 'list', 'document', 'create', 'add']
+FILE_WORDS = ['file', 'files', 'save', 'saved', 'note', 'notes', 'list', 'document', 'create', 'add',
+              'folder', 'folders', 'directory', 'ai_files']
 SAVE_FILE_BLOCK = re.compile(
     r"SAVE_FILE:\**[ \t]*`?([^\n`*]+?)`?\**[ \t]*\n+```[\w+.-]*[ \t]*\n(.*?)\n?```", re.DOTALL)
+# Requests to create or change a file: "make a file with...", "save this as notes.md", "add eggs to shopping.txt"
+FILE_NAME = re.compile(
+    r"(?<![\w/.-])((?:[\w-]+/)*[\w-]+\.(?:txt|md|py|js|ts|html|css|json|csv|xml|ya?ml|toml|ini|cfg|log|sql|bat|ps1|sh))\b",
+    re.IGNORECASE)
+FILE_REQUEST = re.compile(
+    r"\b(?:create|make|write|save|generate|put|store|export|add|update|edit|change|append|turn|draft)\b"
+    rf"[^.?!\n]*?(?:\b(?:files?|documents?|txt)\b|{FILE_NAME.pattern})"
+    r"|\bsave (?:it|this|that|them)\b|\bsave\b[^.?!\n]*?\b(?:list|notes?)\b", re.IGNORECASE)
+HOW_TO_QUESTION = re.compile(r"\s*how (?:do|can|could|should|would) (?:i|we|you)\b|\s*how to\b", re.IGNORECASE)
+FILE_REQUEST_NOTE = ("The user wants a file. You CAN create and change files: write a SAVE_FILE block "
+                     "(the line 'SAVE_FILE: name.ext', then the complete content in a ``` block) and the app "
+                     "shows the user a Save button. Don't say you can't create files, and don't tell the user "
+                     "to create, copy or paste the file themselves.")
+CODE_FENCE = re.compile(r"```([\w+.-]*)[ \t]*\n(.*?)\n?```", re.DOTALL)
+LANGUAGE_EXTENSIONS = {'python': 'py', 'py': 'py', 'javascript': 'js', 'js': 'js', 'typescript': 'ts', 'ts': 'ts',
+                       'html': 'html', 'css': 'css', 'json': 'json', 'markdown': 'md', 'md': 'md', 'csv': 'csv',
+                       'xml': 'xml', 'yaml': 'yaml', 'yml': 'yaml', 'toml': 'toml', 'ini': 'ini', 'sql': 'sql',
+                       'bash': 'sh', 'sh': 'sh', 'shell': 'sh', 'batch': 'bat', 'bat': 'bat', 'cmd': 'bat',
+                       'powershell': 'ps1', 'ps1': 'ps1'}
+# Lines where the model talks about the file instead of writing it: "I can't create files, but you can..."
+FILE_TALK = re.compile(r"\b(?:files?|save|saving|saved|create|creating|copy|paste|notepad|text editor)\b",
+                       re.IGNORECASE)
+TALKING_TO_USER = re.compile(r"\b(?:i|you|your)\b", re.IGNORECASE)
 # Folders picked in the browser: skip bulky tool folders
 SKIPPED_UPLOAD_PARTS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.idea', '.vscode'}
 
@@ -150,17 +181,19 @@ def get_live_context(user_input, found_locally=False):
     return ""
 
 
-def get_file_context(user_input):
-    """The user's saved files: their names when files come up, and the content of files they name."""
+def get_file_context(user_input, recent_conversation=""):
+    """What's really in the user's ai_files folder, when files come up or the model offered one
+    recently (so it doesn't make files up), and the content of files the user names."""
     files = [f['path'] for f in file_handler.list_all_files()]
-    if not files:
-        return ""
     text = user_input.lower()
     named = [f for f in files if f.lower() in text or Path(f).name.lower() in text][:2]
-    parts = []
-    if named or _contains_word(text, FILE_WORDS):
-        listing = ", ".join(files[:30]) + (" ..." if len(files) > 30 else "")
-        parts.append(f"The user's saved files (in their ai_files folder): {listing}")
+    if not (named or _contains_word(text, FILE_WORDS) or "SAVE_FILE:" in recent_conversation):
+        return ""
+    if not files:
+        return "The user's ai_files folder is empty: no files have been saved yet."
+    listing = ", ".join(files[:30]) + (f" and {len(files) - 30} more" if len(files) > 30 else "")
+    parts = [f"Files saved in the user's ai_files folder right now (the complete list: no other files exist "
+             f"there, and a file you offered only exists once the user clicked Save): {listing}"]
     for name in named:
         try:
             content = file_handler.read_file(name)
@@ -171,8 +204,17 @@ def get_file_context(user_input):
     return "\n\n".join(parts)
 
 
-def find_file_saves(response):
-    """Files the model wants to save: SAVE_FILE blocks -> [{'path', 'content'}]."""
+def wants_file(user_input):
+    """Whether the user asks for a file to be created or changed (not how to do it themselves)."""
+    return not HOW_TO_QUESTION.match(user_input) and bool(FILE_REQUEST.search(user_input))
+
+
+def find_file_saves(response, user_input=""):
+    """Files to offer the user: SAVE_FILE blocks -> [{'path', 'content', 'exists'}].
+
+    Small models often answer a file request with "I can't create files, but you can...".
+    Then the answer itself is offered as the file.
+    """
     saves = []
     for match in SAVE_FILE_BLOCK.finditer(response):
         try:
@@ -180,7 +222,56 @@ def find_file_saves(response):
         except ValueError:
             continue
         saves.append({'path': path, 'content': match.group(2)})
+    if not saves and user_input and "UPGRADE_REQUEST:" not in response and wants_file(user_input):
+        suggestion = suggest_file(user_input, response)
+        if suggestion:
+            saves.append(suggestion)
+    existing = {f['path'] for f in file_handler.list_all_files()}
+    for save in saves:
+        save['exists'] = save['path'] in existing
     return saves[:5]
+
+
+def suggest_file(user_input, response):
+    """The answer as a file: its largest code block, or else its text without the lines
+    about creating the file. None if there's nothing to save."""
+    blocks = [block for block in CODE_FENCE.finditer(response) if not _is_folder_listing(block.group(2))]
+    if blocks:
+        block = max(blocks, key=lambda b: len(b.group(2)))
+        language, content = block.group(1), block.group(2)
+        before, after = response[:block.start()], response[block.end():]
+    else:
+        lines = response.splitlines()
+        kept = [line for line in lines if not (FILE_TALK.search(line) and TALKING_TO_USER.search(line))]
+        if len(kept) == len(lines):       # not about a file at all, e.g. a question back
+            return None
+        language, content, before, after = '', "\n".join(kept).strip(), response, ''
+    if not content.strip():
+        return None
+    # The name the user gave, else the one the model mentions just before (or after) the content
+    names = FILE_NAME.findall(user_input) or FILE_NAME.findall(before)[-1:] or FILE_NAME.findall(after)[:1]
+    extension = LANGUAGE_EXTENSIONS.get(language.lower(), 'txt')
+    for name in names + [_unused_name('notes' if extension == 'txt' else 'new_file', extension)]:
+        try:
+            return {'path': file_handler.clean_relative_path(name), 'content': content}
+        except ValueError:
+            continue
+    return None
+
+
+def _is_folder_listing(text):
+    """A tree like '├── encrypt.py' (the model showing files), not file content."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    return bool(lines) and sum(any(c in line for c in '├└│') for line in lines) >= len(lines) / 2
+
+
+def _unused_name(stem, extension):
+    """stem.ext, or stem_2.ext etc. if that file already exists."""
+    existing = {f['path'] for f in file_handler.list_all_files()}
+    name, number = f"{stem}.{extension}", 2
+    while name in existing:
+        name, number = f"{stem}_{number}.{extension}", number + 1
+    return name
 
 
 def get_code_context(user_input):
@@ -223,15 +314,16 @@ def build_prompt(user_input, extra_context=""):
     live_context = get_live_context(user_input, found_locally=bool(doc_context))
     calculator_context = math_context(user_input)
     code_context = get_code_context(user_input)
-    file_context = get_file_context(user_input)
     recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
     formatted_history = conversation_history.format_for_prompt(recent_messages)
+    file_context = get_file_context(user_input, formatted_history)
     feedback = learner.get_feedback_guidance()
 
     now = datetime.now().strftime("%A %d %B %Y, %H:%M")
     sections = [SYSTEM_PROMPT, f"Current date and time: {now}", feedback, extra_context, code_context, file_context,
                 live_context, calculator_context, doc_context, similar_context,
-                f"Recent conversation:\n{formatted_history}" if formatted_history else ""]
+                f"Recent conversation:\n{formatted_history}" if formatted_history else "",
+                FILE_REQUEST_NOTE if wants_file(user_input) else ""]  # last, so small models don't miss it
     context = "\n\n".join(s.strip() for s in sections if s and s.strip())
     return f"{context}\n\nUser: {user_input}\nAssistant:"
 
@@ -248,6 +340,7 @@ def search_request(text):
 def search_context(query):
     """Run a search the model asked for and phrase the results for the second pass."""
     learner.log_web_search()
+    log.info("Web search: %s", query)
     results = web_searcher.search(query)
     return (f"You asked to search the web for '{query}'. Results:\n{results}\n\n"
             f"Answer the user's question now using these results. Do not reply with SEARCH again.")
@@ -335,6 +428,24 @@ def find_runnable_code(response):
     return code_executor.extract_code(response)
 
 
+def _short(text, limit):
+    """One line of at most `limit` characters, for the log."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def log_exchange(user_input, response, files, error=None):
+    """Log a question, its answer and the files offered (shortened), for the 🐞 logs button."""
+    log.info("Question: %s", _short(user_input, 300))
+    if error:
+        log.warning("Answer failed: %s", error)
+    else:
+        log.info("Answer from %s: %s", llm_interface.model_name, _short(response, 800))
+    if files:
+        log.info("Offered to save: %s", ", ".join(
+            f['path'] + (" (replaces the saved one)" if f.get('exists') else "") for f in files))
+
+
 def record_exchange(user_input, response):
     """Save a user/assistant exchange to history, vector memory and learning logs."""
     conversation_history.add_message("User", user_input)
@@ -348,6 +459,7 @@ def record_exchange(user_input, response):
 @app.errorhandler(LLMError)
 def handle_llm_error(e):
     """The model couldn't answer (Ollama not running, model missing, timeout)."""
+    log.warning("Model error: %s", e)
     return jsonify({'error': str(e)}), 503
 
 
@@ -391,7 +503,9 @@ def chat():
     record_exchange(user_input, response)
 
     has_code, code = find_runnable_code(response)
-    return jsonify({'response': response, 'has_code': has_code, 'code': code, 'files': find_file_saves(response)})
+    files = find_file_saves(response, user_input)
+    log_exchange(user_input, response, files)
+    return jsonify({'response': response, 'has_code': has_code, 'code': code, 'files': files})
 
 
 @app.route('/api/chat-stream', methods=['POST'])
@@ -424,12 +538,14 @@ def chat_stream():
             error = str(e)
 
         has_code, code = (False, None) if error else find_runnable_code(response_text)
+        files = [] if error else find_file_saves(response_text, user_input)
+        log_exchange(user_input, response_text, files, error)
         done = {
             'done': True,
             'has_code': has_code,
             'code': code,
             'has_upgrade': "UPGRADE_REQUEST:" in response_text,
-            'files': [] if error else find_file_saves(response_text),
+            'files': files,
             'error': error,
         }
         yield f"data: {json.dumps(done)}\n\n"
@@ -453,6 +569,7 @@ def select_model():
     try:
         result = model_manager.select(json_body().get('model', ''))
     except ValueError as e:
+        log.warning("Model change refused: %s", e)
         return jsonify({'success': False, 'error': str(e)}), 400
     return jsonify({'success': True, **result, 'current': llm_interface.model_name})
 
@@ -469,6 +586,7 @@ def execute_code():
 
     success, output = code_executor.execute_code(code)
     learner.log_code_execution(success)
+    log.info("Ran code: %s", "worked" if success else f"failed: {_short(output, 300)}")
     return jsonify({'success': success, 'output': output})
 
 
@@ -790,7 +908,35 @@ def save_file():
         return jsonify({'error': str(e)}), 400
     file_handler.write_file(path, content)
     learner.log_file_operation('save', True)
-    return jsonify({'success': True, 'path': path, 'message': f"✅ Saved {path} in your ai_files folder"})
+    log.info("Saved file %s (%d characters)", path, len(content))
+    return jsonify({'success': True, 'path': path,
+                    'message': f"✅ Saved {path} (on your PC: {file_handler.allowed_directory / path})"})
+
+
+def system_summary():
+    """Versions and settings for the top of the 🐞 logs report."""
+    try:
+        with tempfile.NamedTemporaryFile(dir=AI_FILES_PATH):
+            writable = "yes"
+    except OSError as e:
+        writable = f"NO ({e})"
+    ollama = "running" if llm_interface.test_connection() else f"NOT reachable at {OLLAMA_URL}"
+    saved = [f['path'] for f in file_handler.list_all_files()]
+    return [f"System: {platform.platform()}, Python {platform.python_version()}",
+            f"App files dated: {datetime.fromtimestamp(Path(__file__).stat().st_mtime):%Y-%m-%d %H:%M}",
+            f"Model: {llm_interface.model_name} (Ollama {ollama})",
+            f"Saved files folder: {AI_FILES_PATH} (can write: {writable})",
+            f"Saved files: {', '.join(saved[:30]) or 'none'}"]
+
+
+@app.route('/api/logs', methods=['GET'])
+def get_logs():
+    """The last few minutes of the app's log with versions, for the 🐞 button."""
+    minutes = min(max(request.args.get('minutes', 5, type=int), 1), 60)
+    report = [f"AI Assistant logs: the last {minutes} minutes (made {datetime.now():%Y-%m-%d %H:%M:%S})",
+              *system_summary(), "", "--- App log ---",
+              *(recent_lines(LOGS_PATH, minutes) or ["(nothing logged)"])]
+    return jsonify({'report': "\n".join(report)})
 
 
 @app.route('/api/files/download', methods=['GET'])
@@ -897,8 +1043,10 @@ or write code that works with these files."""
     learner.log_feature_usage('folder_chat')
 
     has_code, code = find_runnable_code(response)
+    files = find_file_saves(response, message)
+    log_exchange(message, response, files)
     return jsonify({'response': response, 'folder': folder_name, 'has_code': has_code, 'code': code,
-                    'files': find_file_saves(response)})
+                    'files': files})
 
 
 # ==================== SELF-IMPROVEMENT ENDPOINTS ====================

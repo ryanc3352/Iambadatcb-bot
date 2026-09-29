@@ -147,7 +147,7 @@ function sendMessageWithFolder(message) {
                 if (data.has_code && data.code) {
                     showCodeRequest(data.code);
                 }
-                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content));
+                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content, f.exists));
                 lastResponseRole = 'assistant';
                 feedbackBtn.style.display = 'inline-block';
             }
@@ -260,7 +260,7 @@ function streamMessage(message) {
                                 if (data.has_code && data.code) {
                                     showCodeRequest(data.code);
                                 }
-                                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content));
+                                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content, f.exists));
                             }
                         } catch (e) {
                             console.warn('⚠️ Parse error:', e);
@@ -913,27 +913,34 @@ function updateStats() {
 
 // ==================== FILES THE AI SAVES ====================
 
-function showSaveFileRequest(path, content) {
-    const lines = content.split('\n');
+function showSaveFileRequest(path, content, exists) {
     const blockDiv = document.createElement('div');
     blockDiv.className = 'code-execution-request';
     blockDiv.innerHTML = `
         <div style="background: var(--accent-1); color: white; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
-            <strong>💾 Save this file?</strong> <span class="save-path"></span>
+            <strong>💾 Save this file?</strong> You can change the name and text first.
         </div>
-        <div class="code-block" style="margin-bottom: 10px;">
-            <div class="code-lines"></div>
-        </div>
+        <label class="save-field">File name <input class="save-path" type="text" spellcheck="false"></label>
+        <div class="save-note"></div>
+        <textarea class="save-content" spellcheck="false"></textarea>
         <div style="display: flex; gap: 10px;">
             <button class="btn-execute">💾 Save</button>
             <button class="btn-skip">❌ Skip</button>
         </div>
     `;
-    blockDiv.querySelector('.save-path').textContent = path;
-    blockDiv.querySelector('.code-lines').textContent =
-        lines.slice(0, 25).join('\n') + (lines.length > 25 ? `\n... (${lines.length - 25} more lines)` : '');
+    const pathInput = blockDiv.querySelector('.save-path');
+    const contentBox = blockDiv.querySelector('.save-content');
+    const note = blockDiv.querySelector('.save-note');
+    pathInput.value = path;
+    contentBox.value = content;
+    contentBox.rows = Math.min(Math.max(content.split('\n').length + 1, 4), 15);
+    const showNote = () => {
+        note.textContent = exists && pathInput.value.trim() === path ? `This replaces your saved ${path}.` : '';
+    };
+    pathInput.oninput = showNote;
+    showNote();
     const saveBtn = blockDiv.querySelector('.btn-execute');
-    saveBtn.onclick = () => saveFile(saveBtn, path, content, blockDiv);
+    saveBtn.onclick = () => saveFile(saveBtn, pathInput.value.trim(), contentBox.value, blockDiv);
     blockDiv.querySelector('.btn-skip').onclick = () => blockDiv.remove();
 
     const follow = isNearBottom();
@@ -953,6 +960,7 @@ function saveFile(button, path, content, blockDiv) {
     .then(data => {
         showCodeResult(blockDiv, !!data.success, data.success ? data.message : (data.error || 'Could not save'), '');
         button.style.display = data.success ? 'none' : '';
+        if (data.success) blockDiv.querySelectorAll('input, textarea').forEach(el => { el.disabled = true; });
         button.disabled = false;
         button.textContent = '💾 Save';
         loadFilesList();
@@ -1144,3 +1152,68 @@ function toggleDarkMode() {
 // ==================== LOG STARTUP ====================
 console.log('✅ Script loaded - Chat interface ready!');
 console.log('Available commands: analyzeMyself(), showLearning(), showImprovements(), selfImprove()');
+
+// ==================== LOGS FOR TROUBLESHOOTING ====================
+// The 🐞 button downloads the app's log of the last few minutes plus the page's own errors,
+// so whoever helps can see exactly what happened.
+
+const LOG_MINUTES = 5;
+const pageEvents = [];
+
+function notePageEvent(text) {
+    pageEvents.push({ time: Date.now(), text: String(text) });
+    if (pageEvents.length > 200) pageEvents.shift();
+}
+
+function localStamp(time) {
+    const d = new Date(time);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+        + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function recentPageEvents(minutes) {
+    const cutoff = Date.now() - minutes * 60 * 1000;
+    return pageEvents.filter(e => e.time >= cutoff).map(e => `${localStamp(e.time)} ${e.text}`);
+}
+
+window.addEventListener('error', e => notePageEvent(`Page error: ${e.message} (${e.filename}:${e.lineno})`));
+window.addEventListener('unhandledrejection', e => notePageEvent(`Page error: ${e.reason}`));
+
+// Note failed requests too (e.g. when the black window was closed)
+const unloggedFetch = window.fetch.bind(window);
+window.fetch = (resource, options) => {
+    const request = `${(options && options.method) || 'GET'} ${resource}`;
+    return unloggedFetch(resource, options).then(response => {
+        if (!response.ok) notePageEvent(`${request} → HTTP ${response.status}`);
+        return response;
+    }, err => {
+        notePageEvent(`${request} failed: ${err.message}`);
+        throw err;
+    });
+};
+
+function downloadLogs() {
+    const button = document.getElementById('logs-btn');
+    button.disabled = true;
+    unloggedFetch(`/api/logs?minutes=${LOG_MINUTES}`)
+    .then(r => r.json())
+    .then(data => data.report || data.error)
+    .catch(err => `Couldn't get the app's log (${err.message}). Is the black window still open?`)
+    .then(appLog => {
+        const page = recentPageEvents(LOG_MINUTES);
+        const text = [appLog, '', '--- Page ---', ...(page.length ? page : ['(no errors in the page)']),
+                      `Browser: ${navigator.userAgent}`, ''].join('\n');
+        const name = `assistant-logs-${localStamp(Date.now()).replace(/[: ]/g, '-')}.txt`;
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+        addMessage('assistant', `🐞 Saved the last ${LOG_MINUTES} minutes of logs as ${name} in your Downloads `
+            + 'folder. Send that file to whoever is helping you.');
+    })
+    .finally(() => { button.disabled = false; });
+}

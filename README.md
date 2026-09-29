@@ -40,7 +40,7 @@ To stop it, close the black window.
 | **Memory** | It remembers earlier chats and brings up relevant ones later. **New Conversation** starts a fresh chat (old ones stay in long-term memory). |
 | **Your documents** | **Upload Documents** (PDF, Word, text, Markdown, code). Relevant parts are used in answers; **View Docs** lists them. |
 | **Project folders** | **📂 Add Folder** and pick a folder (or **🗜️ Add Folder (.zip)**). Click the folder to chat about its files. |
-| **Create files** | "Make me a shopping list file", "save this as notes.md". The AI shows a **💾 Save** card; saved files appear under **📄 My Files** (download or delete). Name a file ("add eggs to shopping.txt") and the AI sees its content to update it. |
+| **Create files** | "Make me a shopping list file", "save this as notes.md". A **💾 Save** card appears where you can change the name and text, then click Save. Saved files appear under **📄 My Files** (download or delete) and in the `files/ai_files` folder. Name a file ("add eggs to shopping.txt") and the AI sees its content to update it. |
 | **Weather** | "What's the weather in Paris tomorrow?" (live data from Open-Meteo, no account needed). "London, Ontario" works too. |
 | **Web search** | Local first: your documents, folders and memory are checked before going online. If the answer isn't there, the assistant searches the web itself ("🔍 Searched the web for…"). |
 | **Exact maths** | Calculations (`1234*5678`, `15% of 240`, `sqrt(2)^10`, `5 times 6`) and equations (`solve 2x^2 + 3x - 2 = 0`, `3x + 5 = 20`) are worked out exactly by the app, including complex roots, and handed to the model. |
@@ -48,6 +48,7 @@ To stop it, close the black window.
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
 | **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
 | **Dark mode** | 🌙 at the top left. |
+| **Problem? Get logs** | **🐞 Problem? Get logs** (top left) downloads what the app did in the last 5 minutes (your messages, the answers, errors, versions) as a text file. Send it to whoever helps you. |
 
 ### Better maths and answers
 
@@ -70,7 +71,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `OLLAMA_URL` | `http://localhost:11434` | Where Ollama runs |
 | `PORT` | `5000` | Web page port |
 | `HOST` | `127.0.0.1` | Keep this: the app can run code and change its own files |
-| `DATA_DIR` | the `files` folder | Where chats, uploads, saved files and backups are stored |
+| `DATA_DIR` | the `files` folder | Where chats, uploads, saved files, backups and logs are stored |
 | `MAX_UPLOAD_MB` | `200` | Largest upload (documents and folders) |
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
 | `ENABLE_SELF_IMPROVEMENT` | `true` | Allow approved upgrades to change the code |
@@ -83,6 +84,8 @@ All optional. Create a text file named `.env` in the `files` folder:
 - Upgrades can only change the app's own listed files, must still contain everything the
   file had before, and are backed up first.
 - The server only listens on your own PC (`127.0.0.1`).
+- A short log of recent questions, answers and errors is kept in `files/logs` (at most about
+  3 MB) for the 🐞 button. It never leaves your PC unless you send it to someone.
 
 ## Troubleshooting
 
@@ -93,7 +96,9 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `No module named 'exceptions'` | An old package called `docx` is installed. Delete `files/.venv` and start again. |
 | Port 5000 is in use | Add `PORT=5050` to `files/.env`. |
 | Files can't be saved ("Access is denied") | Windows is blocking Python from writing there: usually *Controlled folder access* or a OneDrive-synced Documents/Desktop folder. Move the project to a simple folder like `C:\AI\` (or set `DATA_DIR`), or allow Python in Windows Security → Ransomware protection. |
+| The AI says it can't create files, or lists files that don't exist | Older models like `mistral` do this. The 💾 Save card still appears (fix the name or text before saving), and **📄 My Files** always shows what really exists. Newer models follow instructions better: **🧠 Model** → `qwen3:8b`. |
 | Answers are slow | Normal on PCs without a graphics card. Try a smaller model, e.g. `MODEL_NAME=qwen3:4b`. |
+| Anything else | Right after it happens, click **🐞 Problem? Get logs** and send the downloaded file. |
 
 ## For developers
 
@@ -109,6 +114,7 @@ files/
   model_manager.py          switching, downloading and unloading models
   web_search.py             web search (ddgs, Wikipedia, DuckDuckGo instant answers)
   weather_provider.py       Open-Meteo weather
+  app_logging.py            the log file behind the 🐞 button
   ...                       one module per feature
   templates/, static/       the web page
   tests/                    automated tests (fake Ollama server)

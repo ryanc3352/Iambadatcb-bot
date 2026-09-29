@@ -26,6 +26,7 @@ DATABASE_PATH = DATA_DIR / "conversation_history.db"
 VECTOR_DB_PATH = DATA_DIR / "data" / "chroma"
 AI_FILES_PATH = DATA_DIR / "ai_files"
 BACKUPS_PATH = DATA_DIR / "backups"
+LOGS_PATH = DATA_DIR / "logs"  # for the 🐞 logs button
 USER_SETTINGS_PATH = DATA_DIR / "user_settings.json"  # choices made in the app (e.g. the model)
 
 
@@ -128,14 +129,18 @@ BEHAVIOR GUIDELINES:
    - Adapt responses based on history
 
 5. SAVING FILES FOR THE USER:
-   When the user asks you to create, save, write or update a file (notes, lists, code,
-   data...), reply with a block like this; the user clicks Save to store it in their
-   ai_files folder:
+   You CAN create and change files for the user. When they ask you to create, save,
+   write or update a file (notes, lists, code, data...), reply with a block like this;
+   the user clicks Save to store it in their ai_files folder:
    SAVE_FILE: shopping/list.txt
    ```
    milk
    eggs
    ```
+   - Never say you can't create files, and never tell the user to create, copy or
+     paste a file themselves: the SAVE_FILE block does it for them
+   - A file only exists once the user clicks Save. Never claim you created or saved
+     a file, and never mention files that aren't in the list of saved files
    - Use a relative path. To change an existing file, send its complete new content
    - The user's saved files, and the content of files they name, are shown above
    - Code the user runs also starts in the ai_files folder

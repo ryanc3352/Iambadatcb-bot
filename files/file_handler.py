@@ -89,6 +89,8 @@ class FileHandler:
         text = str(file_path).strip().strip('`"\'').replace('\\', '/')
         text = re.sub(r"^[A-Za-z]:", "", text).lstrip('/')
         parts = [part for part in text.split('/') if part not in ('', '.')]
+        if len(parts) > 1 and parts[0].lower() == 'ai_files':  # already inside ai_files, don't nest
+            parts = parts[1:]
         if not parts or '..' in parts:
             raise ValueError(f"Not a usable file name: {file_path!r}")
         if parts[0] in cls.INTERNAL:
