@@ -1,0 +1,517 @@
+/* ==================== CSS VARIABLES ====================  */
+
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --text-primary: #000000;
+    --text-secondary: #666666;
+    --border-color: #dddddd;
+    --accent-1: #667eea;
+    --accent-2: #764ba2;
+    --success: #51cf66;
+    --error: #ff6b6b;
+}
+
+body.dark-mode {
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #2d2d2d;
+    --text-primary: #ffffff;
+    --text-secondary: #999999;
+    --border-color: #444444;
+    --accent-1: #667eea;
+    --accent-2: #764ba2;
+}
+
+/* ==================== GENERAL ====================  */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background 0.3s, color 0.3s;
+}
+
+/* ==================== LAYOUT ====================  */
+
+.container {
+    display: flex;
+    height: 100vh;
+}
+
+.sidebar {
+    width: 280px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-header h1 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.dark-mode-toggle {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 5px;
+    transition: background 0.2s;
+}
+
+.dark-mode-toggle:hover {
+    background: var(--border-color);
+}
+
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.section {
+    margin-bottom: 20px;
+}
+
+.section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* ==================== BUTTONS ====================  */
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-new-conv {
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.btn-new-conv:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 5px;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: var(--accent-1);
+    color: white;
+    border-color: var(--accent-1);
+}
+
+.btn-send {
+    background: var(--accent-1);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    font-weight: 600;
+    min-width: 100px;
+}
+
+.btn-send:hover {
+    background: var(--accent-2);
+    transform: translateY(-2px);
+}
+
+.btn-send:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-feedback {
+    padding: 8px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.btn-feedback:hover {
+    background: var(--border-color);
+}
+
+.btn-execute {
+    background: var(--success);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-execute:hover {
+    opacity: 0.9;
+}
+
+.btn-skip {
+    background: var(--error);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.btn-skip:hover {
+    opacity: 0.9;
+}
+
+.rating-btn {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    padding: 10px 15px;
+    border-radius: 5px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rating-btn:hover {
+    border-color: var(--accent-1);
+    transform: scale(1.1);
+}
+
+/* ==================== CHAT AREA ====================  */
+
+.chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: var(--bg-primary);
+}
+
+.message {
+    display: flex;
+    margin-bottom: 15px;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message.user {
+    justify-content: flex-end;
+}
+
+.message.user .content {
+    background: var(--accent-1);
+    color: white;
+    border-radius: 15px 15px 0 15px;
+    max-width: 80%;
+}
+
+.message.assistant .content {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-radius: 15px 15px 15px 0;
+    border: 1px solid var(--border-color);
+    max-width: 80%;
+}
+
+.content {
+    padding: 12px 16px;
+    word-wrap: break-word;
+    line-height: 1.6;
+}
+
+.message-text {
+    margin-bottom: 8px;
+}
+
+.message-text:last-child {
+    margin-bottom: 0;
+}
+
+/* ==================== CODE BLOCKS ====================  */
+
+.code-block {
+    background: #282c34;
+    color: #abb2bf;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 10px 0;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    border-left: 4px solid var(--accent-1);
+}
+
+.code-block-header {
+    background: #1e1f26;
+    padding: 8px 12px;
+    margin: -15px -15px 10px -15px;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid #404854;
+    font-weight: 600;
+    font-size: 11px;
+    color: #888;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.code-copy-btn {
+    background: var(--accent-1);
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 10px;
+}
+
+.code-copy-btn:hover {
+    background: var(--accent-2);
+}
+
+.code-lines {
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.code-block.collapsed {
+    max-height: 200px;
+}
+
+.code-expand-btn {
+    background: var(--accent-1);
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 10px;
+    font-size: 12px;
+    width: 100%;
+}
+
+.code-expand-btn:hover {
+    background: var(--accent-2);
+}
+
+.code-output {
+    background: #f0f0f0;
+    color: #333;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    border-left: 4px solid var(--success);
+}
+
+.code-error {
+    background: #ffe0e0;
+    color: #d32f2f;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    border-left: 4px solid var(--error);
+}
+
+.code-execution-request {
+    background: var(--bg-secondary);
+    border: 2px solid var(--accent-1);
+    padding: 15px;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+/* ==================== LONG RESPONSE ====================  */
+
+.long-response {
+    max-height: 300px;
+    overflow: hidden;
+    position: relative;
+}
+
+.long-response::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: linear-gradient(transparent, var(--bg-secondary));
+}
+
+.show-more-btn {
+    background: var(--accent-1);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 10px;
+    width: 100%;
+    font-weight: 600;
+}
+
+.show-more-btn:hover {
+    background: var(--accent-2);
+}
+
+/* ==================== INPUT SECTION ====================  */
+
+.input-section {
+    padding: 15px 20px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+}
+
+.message-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    resize: none;
+}
+
+.message-input:focus {
+    outline: none;
+    border-color: var(--accent-1);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* ==================== MODAL ====================  */
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content h3 {
+    margin-bottom: 15px;
+}
+
+/* ==================== RESPONSIVE ====================  */
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: 0;
+        position: absolute;
+        height: 100%;
+        z-index: 100;
+        left: 0;
+        transition: width 0.3s;
+    }
+    
+    .sidebar.active {
+        width: 280px;
+    }
+    
+    .message.user .content,
+    .message.assistant .content {
+        max-width: 95%;
+    }
+    
+    .chat-area {
+        padding: 10px;
+    }
+    
+    .input-section {
+        padding: 10px;
+    }
+}
+
+/* ==================== SCROLLBAR ====================  */
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-1);
+}

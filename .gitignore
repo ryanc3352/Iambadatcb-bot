@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets / local settings
+.env
+
+# Runtime data created by the app (personal chats, uploads, backups)
+*.db
+files/data/
+files/ai_files/
+files/backups/
+files/temp*/
+
+# Local copy of the code before the cleanup
+files_backup_original/
