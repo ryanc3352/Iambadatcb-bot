@@ -28,7 +28,8 @@ VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/pyth
 REQUIREMENTS = HERE / "requirements.txt"
 STAMP = VENV_DIR / "installed-requirements.sha256"
 MIN_PYTHON = (3, 10)
-DEFAULTS = {"MODEL_NAME": "mistral", "OLLAMA_URL": "http://localhost:11434", "HOST": "127.0.0.1", "PORT": "5000"}
+DEFAULTS = {"MODEL_NAME": "mistral", "OLLAMA_URL": "http://localhost:11434", "HOST": "127.0.0.1", "PORT": "5000",
+            "DATA_DIR": ""}
 
 
 def read_settings(env_file=HERE / ".env", environ=os.environ):
@@ -43,6 +44,14 @@ def read_settings(env_file=HERE / ".env", environ=os.environ):
                 settings[key] = value.strip().strip("'\"")
     for key in settings:
         settings[key] = environ.get(key, settings[key])
+    # A model picked in the app (Model button) wins, like in config.py
+    saved = Path(settings["DATA_DIR"] or HERE) / "user_settings.json"
+    try:
+        model = json.loads(saved.read_text(encoding="utf-8")).get("model")
+        if isinstance(model, str) and model:
+            settings["MODEL_NAME"] = model
+    except (OSError, ValueError, AttributeError):
+        pass
     return settings
 
 
@@ -85,7 +94,7 @@ def model_installed(models, name):
 
 def pull_model(url, name):
     """Download a model through Ollama's API, showing progress."""
-    request = urllib.request.Request(f"{url}/api/pull", data=json.dumps({"name": name}).encode(),
+    request = urllib.request.Request(f"{url}/api/pull", data=json.dumps({"model": name, "name": name}).encode(),
                                      headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=60) as response:
         for line in response:

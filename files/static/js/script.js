@@ -41,6 +41,17 @@ function appendTextAndCode(contentDiv, text) {
     }
 }
 
+// ==================== SCROLLING ====================
+
+// Only follow new text when the user is at the bottom; if they scrolled up to read, stay put
+function isNearBottom() {
+    return chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 80;
+}
+
+function keepScrolled(follow) {
+    if (follow) chatArea.scrollTop = chatArea.scrollHeight;
+}
+
 function textDivFor(text) {
     const textDiv = document.createElement('div');
     textDiv.className = 'message-text';
@@ -55,6 +66,11 @@ document.addEventListener('DOMContentLoaded', () => {
     loadConversationHistory();
     updateStats();
     loadFoldersList();
+    loadFilesList();
+    // Show the model in use, and keep showing progress if a download is still running
+    refreshModels().then(data => {
+        if (data && data.download && !data.download.done) watchModelDownload();
+    });
     
     // Load dark mode preference
     if (localStorage.getItem('darkMode') === 'true') {
@@ -121,10 +137,17 @@ function sendMessageWithFolder(message) {
             if (data.error) {
                 addMessage('assistant', '❌ Error: ' + data.error);
             } else {
-                addMessage('assistant', data.response);
+                const div = document.createElement('div');
+                div.className = 'message assistant';
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'content';
+                div.appendChild(contentDiv);
+                chatArea.appendChild(div);
+                formatMessage(contentDiv, data.response);
                 if (data.has_code && data.code) {
                     showCodeRequest(data.code);
                 }
+                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content));
                 lastResponseRole = 'assistant';
                 feedbackBtn.style.display = 'inline-block';
             }
@@ -168,7 +191,9 @@ function streamMessage(message) {
             const contentDiv = document.createElement('div');
             contentDiv.className = 'content';
             div.appendChild(contentDiv);
+            const follow = isNearBottom();
             chatArea.appendChild(div);
+            keepScrolled(follow);
             currentStreamingDiv = contentDiv;
             contentDiv.style.whiteSpace = 'pre-wrap';  // raw text while streaming
             
@@ -201,6 +226,14 @@ function streamMessage(message) {
                         try {
                             const data = JSON.parse(line.substring(6));
                             
+                            if (data.thinking && !div.querySelector('.thinking-note')) {
+                                const note = document.createElement('div');
+                                note.className = 'thinking-note';
+                                note.style.cssText = 'font-size: 12px; opacity: 0.75; margin-bottom: 6px;';
+                                note.textContent = '🤔 Thinking it through first…';
+                                div.insertBefore(note, currentStreamingDiv);
+                            }
+
                             if (data.searching) {
                                 // shown above the answer; formatMessage() doesn't clear it
                                 const note = document.createElement('div');
@@ -213,8 +246,9 @@ function streamMessage(message) {
                             if (data.token) {
                                 fullText += data.token;
                                 // Text nodes, not innerHTML: no escaping needed and no re-parsing per token
+                                const follow = isNearBottom();
                                 currentStreamingDiv.insertAdjacentText('beforeend', data.token);
-                                chatArea.scrollTop = chatArea.scrollHeight;
+                                keepScrolled(follow);
                             }
                             
                             if (data.done) {
@@ -226,6 +260,7 @@ function streamMessage(message) {
                                 if (data.has_code && data.code) {
                                     showCodeRequest(data.code);
                                 }
+                                (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content));
                             }
                         } catch (e) {
                             console.warn('⚠️ Parse error:', e);
@@ -276,8 +311,9 @@ function addMessage(role, content) {
         div.appendChild(contentDiv);
     }
     
+    const follow = role === 'user' || isNearBottom();
     chatArea.appendChild(div);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    keepScrolled(follow);
 }
 
 // Parse "UPGRADE_REQUEST: FILE: ... DESCRIPTION: ... CODE: ```python ... ```".
@@ -291,6 +327,12 @@ function parseUpgradeRequest(text) {
 }
 
 function formatMessage(contentDiv, text) {
+    const follow = isNearBottom();
+    renderFormatted(contentDiv, text);
+    keepScrolled(follow);
+}
+
+function renderFormatted(contentDiv, text) {
     contentDiv.innerHTML = '';
     contentDiv.style.whiteSpace = '';
     
@@ -306,9 +348,12 @@ function formatMessage(contentDiv, text) {
         return;
     }
 
-    // Normal message formatting
-    appendTextAndCode(contentDiv, text);
+    // Normal message formatting (files to save are shown as Save cards instead)
+    appendTextAndCode(contentDiv, text.replace(SAVE_FILE_BLOCK, (_, path) => `📄 File: ${path.trim()} (see below)`));
 }
+
+// Same pattern as the server's SAVE_FILE_BLOCK
+const SAVE_FILE_BLOCK = /SAVE_FILE:\**[ \t]*`?([^\n`*]+?)`?\**[ \t]*\n+```[\w+.-]*[ \t]*\n([\s\S]*?)\n?```/g;
 
 function createCodeBlock(code, language = '') {
     const blockDiv = document.createElement('div');
@@ -386,14 +431,16 @@ function showCodeRequest(code) {
     blockDiv.querySelector('.btn-execute').onclick = (e) => executeCode(e.target, code, blockDiv);
     blockDiv.querySelector('.btn-skip').onclick = () => blockDiv.remove();
 
+    const follow = isNearBottom();
     chatArea.appendChild(blockDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    keepScrolled(follow);
 }
 
-function showCodeResult(blockDiv, success, text) {
+function showCodeResult(blockDiv, success, text, successLabel = '✅ Output:') {
     const result = document.createElement('div');
     result.className = success ? 'code-output' : 'code-error';
-    result.innerHTML = `<strong>${success ? '✅ Output:' : '❌ Error:'}</strong><br>${renderText(text)}`;
+    const label = success ? successLabel : '❌ Error:';
+    result.innerHTML = (label ? `<strong>${label}</strong><br>` : '') + renderText(text);
     blockDiv.appendChild(result);
 }
 
@@ -536,6 +583,28 @@ function selectFolderMode() {
     } else {
         loadFoldersList();
     }
+}
+
+function uploadFolderFiles(event) {
+    // A folder picked directly (no ZIP): send each file with its path inside the folder
+    const skip = /(^|\/)(\.git|node_modules|__pycache__|\.venv|venv|\.idea|\.vscode)\//;
+    const files = [...event.target.files].filter(f => !skip.test(f.webkitRelativePath));
+    if (!files.length) return;
+    const folderName = files[0].webkitRelativePath.split('/')[0];
+
+    const formData = new FormData();
+    formData.append('folder_name', folderName);
+    files.forEach(f => formData.append('files', f, f.webkitRelativePath));
+
+    addMessage('user', `📤 Adding folder: ${folderName} (${files.length} files)`);
+    fetch('/api/folders/upload-files', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        addMessage('assistant', data.success ? data.message : `❌ Error: ${data.error || data.message}`);
+        loadFoldersList();
+    })
+    .catch(err => addMessage('assistant', `❌ Upload failed: ${err.message}`))
+    .finally(() => { event.target.value = ''; });
 }
 
 function uploadFolder(event) {
@@ -701,8 +770,9 @@ function showUpgradeRequest(file, description, code) {
     blockDiv.querySelector('.upgrade-approve').onclick = (e) => approveUpgrade(e.target, file, description, code, blockDiv);
     blockDiv.querySelector('.upgrade-reject').onclick = () => rejectUpgrade(blockDiv);
 
+    const follow = isNearBottom();
     chatArea.appendChild(blockDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    keepScrolled(follow);
 }
 
 function approveUpgrade(button, file, description, code, blockDiv) {
@@ -839,6 +909,229 @@ function updateStats() {
         }
     })
     .catch(err => console.error('❌ Stats error:', err));
+}
+
+// ==================== FILES THE AI SAVES ====================
+
+function showSaveFileRequest(path, content) {
+    const lines = content.split('\n');
+    const blockDiv = document.createElement('div');
+    blockDiv.className = 'code-execution-request';
+    blockDiv.innerHTML = `
+        <div style="background: var(--accent-1); color: white; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+            <strong>💾 Save this file?</strong> <span class="save-path"></span>
+        </div>
+        <div class="code-block" style="margin-bottom: 10px;">
+            <div class="code-lines"></div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn-execute">💾 Save</button>
+            <button class="btn-skip">❌ Skip</button>
+        </div>
+    `;
+    blockDiv.querySelector('.save-path').textContent = path;
+    blockDiv.querySelector('.code-lines').textContent =
+        lines.slice(0, 25).join('\n') + (lines.length > 25 ? `\n... (${lines.length - 25} more lines)` : '');
+    const saveBtn = blockDiv.querySelector('.btn-execute');
+    saveBtn.onclick = () => saveFile(saveBtn, path, content, blockDiv);
+    blockDiv.querySelector('.btn-skip').onclick = () => blockDiv.remove();
+
+    const follow = isNearBottom();
+    chatArea.appendChild(blockDiv);
+    keepScrolled(follow);
+}
+
+function saveFile(button, path, content, blockDiv) {
+    button.disabled = true;
+    button.textContent = '⏳ Saving...';
+    fetch('/api/files/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, content })
+    })
+    .then(r => r.json())
+    .then(data => {
+        showCodeResult(blockDiv, !!data.success, data.success ? data.message : (data.error || 'Could not save'), '');
+        button.style.display = data.success ? 'none' : '';
+        button.disabled = false;
+        button.textContent = '💾 Save';
+        loadFilesList();
+        updateStats();
+    })
+    .catch(err => {
+        showCodeResult(blockDiv, false, err.message);
+        button.disabled = false;
+        button.textContent = '💾 Save';
+    });
+}
+
+function loadFilesList() {
+    fetch('/api/files')
+    .then(r => r.json())
+    .then(data => {
+        const list = document.getElementById('files-list');
+        list.innerHTML = '';
+        if (!data.files || !data.files.length) {
+            list.innerHTML = '<p style="font-size: 12px; color: var(--text-secondary);">No files yet. Ask the AI to create one!</p>';
+            return;
+        }
+        for (const file of data.files) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border-color);';
+            const link = document.createElement('a');
+            link.href = `/api/files/download?path=${encodeURIComponent(file.path)}`;
+            link.textContent = `📄 ${file.path}`;
+            link.title = 'Download';
+            link.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;';
+            const remove = document.createElement('button');
+            remove.textContent = '🗑️';
+            remove.title = 'Delete';
+            remove.style.cssText = 'background: none; border: none; cursor: pointer;';
+            remove.onclick = () => deleteSavedFile(file.path);
+            row.append(link, remove);
+            list.appendChild(row);
+        }
+    })
+    .catch(err => console.warn('⚠️ Files error:', err));
+}
+
+function deleteSavedFile(path) {
+    if (!confirm(`Delete ${path}?`)) return;
+    fetch(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+        addMessage('assistant', data.success ? `🗑️ ${data.message}` : `❌ ${data.error}`);
+        loadFilesList();
+        updateStats();
+    });
+}
+
+// ==================== MODELS ====================
+
+let modelPollTimer = null;
+
+function formatSize(bytes) {
+    return bytes ? `${(bytes / 1e9).toFixed(1)} GB` : '';
+}
+
+function modelRow(label, detail, onClick, highlight) {
+    const row = document.createElement('button');
+    row.className = 'btn-secondary';
+    row.style.cssText = `display: flex; justify-content: space-between; gap: 8px; width: 100%; margin: 3px 0; text-align: left;${highlight ? ' border: 2px solid var(--accent-1);' : ''}`;
+    const name = document.createElement('strong');
+    name.textContent = label;
+    const info = document.createElement('small');
+    info.textContent = detail;
+    row.append(name, info);
+    row.onclick = onClick;
+    return row;
+}
+
+function sameModel(a, b) {
+    const full = name => name.split('/').pop().includes(':') ? name : `${name}:latest`;
+    return full(a) === full(b);
+}
+
+function renderModelPanel(data) {
+    document.getElementById('model-btn').textContent = `🧠 Model: ${data.current}`;
+    document.getElementById('model-current').textContent =
+        `In use: ${data.current}` + (data.current_installed ? '' : ' (not downloaded yet: pick it below to download)');
+
+    const error = document.getElementById('model-error');
+    error.style.display = data.error ? 'block' : 'none';
+    error.textContent = data.error ? `⚠️ ${data.error}` : '';
+
+    const installed = document.getElementById('model-installed');
+    installed.innerHTML = '';
+    if (!data.installed.length) {
+        installed.textContent = data.error ? '' : 'No models downloaded yet.';
+    }
+    for (const model of data.installed) {
+        const inUse = sameModel(model.name, data.current);
+        const inMemory = data.loaded.some(name => sameModel(name, model.name));
+        const detail = [formatSize(model.size), inMemory ? 'in memory' : '', inUse ? '✓ in use' : ''].filter(Boolean).join(' · ');
+        installed.appendChild(modelRow(model.name, detail, () => selectModel(model.name), inUse));
+    }
+
+    const suggestions = document.getElementById('model-suggestions');
+    suggestions.innerHTML = '';
+    for (const model of data.suggestions) {
+        if (data.installed.some(m => sameModel(m.name, model.name))) continue;
+        suggestions.appendChild(modelRow(model.name, `${model.size} · ${model.note}`, () => selectModel(model.name), false));
+    }
+
+    const box = document.getElementById('model-download');
+    const d = data.download;
+    box.style.display = d && !(d.done && !d.error) ? 'block' : 'none';
+    if (d) {
+        const pct = d.total ? Math.floor(d.completed * 100 / d.total) : 0;
+        document.getElementById('model-progress-bar').style.width = `${d.done && !d.error ? 100 : pct}%`;
+        document.getElementById('model-download-text').textContent = d.error
+            ? `❌ Couldn't download ${d.model}: ${d.error}`
+            : `Downloading ${d.model}: ${d.status}${d.total ? ` ${pct}%` : ''}`;
+    }
+}
+
+async function refreshModels() {
+    try {
+        const data = await (await fetch('/api/models')).json();
+        renderModelPanel(data);
+        return data;
+    } catch (err) {
+        console.warn('⚠️ Could not load models:', err);
+        return null;
+    }
+}
+
+function showModelPanel() {
+    document.getElementById('model-panel').style.display = 'flex';
+    refreshModels();
+}
+
+function closeModelPanel() {
+    document.getElementById('model-panel').style.display = 'none';
+}
+
+function watchModelDownload() {
+    clearInterval(modelPollTimer);
+    modelPollTimer = setInterval(async () => {
+        const data = await refreshModels();
+        const d = data && data.download;
+        if (!d || d.done) {
+            clearInterval(modelPollTimer);
+            modelPollTimer = null;
+            if (d && d.error) addMessage('assistant', `❌ Couldn't download ${d.model}: ${d.error}`);
+            else if (d) addMessage('assistant', `🧠 ${d.model} is downloaded and now in use.`);
+        }
+    }, 1000);
+}
+
+async function selectModel(name) {
+    name = (name || '').trim();
+    if (!name) return;
+    try {
+        const response = await fetch('/api/models/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: name })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            const error = document.getElementById('model-error');
+            error.style.display = 'block';
+            error.textContent = `⚠️ ${data.error}`;
+            return;
+        }
+        document.getElementById('model-name-input').value = '';
+        if (data.action === 'downloading') {
+            watchModelDownload();
+        } else if (data.action === 'switched') {
+            addMessage('assistant', `🧠 ${data.message}`);
+        }
+        await refreshModels();
+    } catch (err) {
+        addMessage('assistant', `❌ Couldn't change the model: ${err.message}`);
+    }
 }
 
 // ==================== DARK MODE ====================

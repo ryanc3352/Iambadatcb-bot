@@ -18,6 +18,11 @@
                 </button>
             </div>
 
+            <!-- MODEL -->
+            <button id="model-btn" class="btn-secondary" onclick="showModelPanel()" style="width: 100%; margin-bottom: 8px;" title="Change the AI model">
+                🧠 Model
+            </button>
+
             <!-- NEW CONVERSATION -->
             <button class="btn-new-conv" onclick="newConversation()">
                 ➕ New Conversation
@@ -41,7 +46,7 @@
                 <button class="btn-secondary" onclick="document.getElementById('file-input').click()" style="width: 100%; margin-bottom: 8px;">
                     📤 Upload Documents
                 </button>
-                <input type="file" id="file-input" style="display:none;" accept=".pdf,.docx,.txt,.md,.py,.js,.css,.html,.json,.yaml,.yml,.sh" onchange="uploadDocument(event)">
+                <input type="file" id="file-input" style="display:none;" accept=".pdf,.docx,.txt,.md,.csv,.log,.json,.xml,.yaml,.yml,.toml,.ini,.cfg,.html,.css,.js,.ts,.py,.sql,.sh,.bat,.ps1" onchange="uploadDocument(event)">
                 <button class="btn-secondary" onclick="loadDocumentsList()" style="width: 100%;">
                     📋 View Docs
                 </button>
@@ -52,8 +57,12 @@
             <!-- FOLDER ACCESS -->
             <div class="section">
                 <h3>📁 Folder Access</h3>
+                <button class="btn-secondary" onclick="document.getElementById('folder-pick-input').click()" style="width: 100%; margin-bottom: 8px;">
+                    📂 Add Folder
+                </button>
+                <input type="file" id="folder-pick-input" style="display:none;" webkitdirectory multiple onchange="uploadFolderFiles(event)">
                 <button class="btn-secondary" onclick="document.getElementById('folder-input').click()" style="width: 100%; margin-bottom: 8px;">
-                    📤 Upload Folder (.zip)
+                    🗜️ Add Folder (.zip)
                 </button>
                 <input type="file" id="folder-input" style="display:none;" accept=".zip" onchange="uploadFolder(event)">
                 <button class="btn-secondary" onclick="loadFoldersList()" style="width: 100%; margin-bottom: 8px;">
@@ -65,6 +74,19 @@
                 <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
                     💡 Tip: Select a folder to give AI access
                 </p>
+            </div>
+
+            <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
+
+            <!-- MY FILES -->
+            <div class="section">
+                <h3>📄 My Files</h3>
+                <div id="files-list" style="max-height: 200px; overflow-y: auto; font-size: 12px;">
+                    <p style="font-size: 12px; color: var(--text-secondary);">No files yet. Ask the AI to create one!</p>
+                </div>
+                <button class="btn-secondary" onclick="loadFilesList()" style="width: 100%; margin-top: 6px; font-size: 12px;">
+                    🔄 Refresh Files
+                </button>
             </div>
 
             <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-color);">
@@ -110,6 +132,7 @@
                             I'm your self-improving AI assistant. I can:<br>
                             ✅ Chat and answer questions<br>
                             ✅ Write Python code and run it when you approve<br>
+                            ✅ Create and update files for you (📄 My Files)<br>
                             ✅ Search the web for current information<br>
                             ✅ Read and analyze documents<br>
                             ✅ Access your project folders<br>
@@ -172,6 +195,39 @@
             <button onclick="submitFeedback()" class="btn-send" style="width: 100%;">
                 Submit Feedback
             </button>
+        </div>
+    </div>
+
+    <!-- MODEL PANEL (Hidden by default) -->
+    <div id="model-panel" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 560px; width: 92%; max-height: 85vh; overflow-y: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3>🧠 Choose a model</h3>
+                <button onclick="closeModelPanel()" style="background: none; border: none; font-size: 20px; cursor: pointer;">✕</button>
+            </div>
+            <p id="model-current" style="font-size: 13px; margin-bottom: 10px;"></p>
+            <p id="model-error" style="font-size: 13px; color: #ff6b6b; margin-bottom: 10px; display: none;"></p>
+
+            <div id="model-download" style="display: none; margin-bottom: 12px;">
+                <div style="height: 10px; background: var(--border-color); border-radius: 5px; overflow: hidden;">
+                    <div id="model-progress-bar" style="height: 100%; width: 0%; background: var(--accent-1); transition: width 0.3s;"></div>
+                </div>
+                <p id="model-download-text" style="font-size: 12px; margin-top: 5px;"></p>
+            </div>
+
+            <h4 style="margin: 10px 0 6px;">Downloaded</h4>
+            <div id="model-installed" style="font-size: 13px;"></div>
+
+            <h4 style="margin: 14px 0 6px;">Download another model</h4>
+            <div id="model-suggestions" style="font-size: 13px;"></div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <input id="model-name-input" class="message-input" placeholder="Any Ollama model, e.g. phi4-mini" style="flex: 1;"
+                       onkeydown="if (event.key === 'Enter') selectModel(this.value)">
+                <button class="btn-send" onclick="selectModel(document.getElementById('model-name-input').value)">Use</button>
+            </div>
+            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                Switching unloads the previous model from memory. Models that aren't downloaded yet are downloaded first.
+            </p>
         </div>
     </div>
 

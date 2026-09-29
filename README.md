@@ -35,10 +35,12 @@ To stop it, close the black window.
 
 | Feature | How to use it |
 |---|---|
-| **Chat** | Type and press Enter. Answers stream in as they are written. |
+| **Chat** | Type and press Enter. Answers stream in as they are written; scroll up to read while it writes. |
+| **Change model** | **🧠 Model** (top left). Pick a downloaded model or a suggested one: models you don't have are downloaded (with progress), and the previous model is unloaded from memory. Your choice is remembered. |
 | **Memory** | It remembers earlier chats and brings up relevant ones later. **New Conversation** starts a fresh chat (old ones stay in long-term memory). |
 | **Your documents** | **Upload Documents** (PDF, Word, text, Markdown, code). Relevant parts are used in answers; **View Docs** lists them. |
-| **Project folders** | Zip a folder, then **Upload Folder (.zip)**. Click the folder to chat about its files. |
+| **Project folders** | **📂 Add Folder** and pick a folder (or **🗜️ Add Folder (.zip)**). Click the folder to chat about its files. |
+| **Create files** | "Make me a shopping list file", "save this as notes.md". The AI shows a **💾 Save** card; saved files appear under **📄 My Files** (download or delete). Name a file ("add eggs to shopping.txt") and the AI sees its content to update it. |
 | **Weather** | "What's the weather in Paris tomorrow?" (live data from Open-Meteo, no account needed). "London, Ontario" works too. |
 | **Web search** | Local first: your documents, folders and memory are checked before going online. If the answer isn't there, the assistant searches the web itself ("🔍 Searched the web for…"). |
 | **Exact maths** | Calculations (`1234*5678`, `15% of 240`, `sqrt(2)^10`, `5 times 6`) and equations (`solve 2x^2 + 3x - 2 = 0`, `3x + 5 = 20`) are worked out exactly by the app, including complex roots, and handed to the model. |
@@ -50,13 +52,9 @@ To stop it, close the black window.
 ### Better maths and answers
 
 The default model is `mistral`. Newer models such as **Qwen3** are much better at maths
-and reasoning. To switch, create a file called `.env` in the `files` folder with:
-
-```
-MODEL_NAME=qwen3:8b
-```
-
-The launcher downloads the new model on the next start.
+and reasoning: click **🧠 Model** and pick `qwen3:8b` (or `qwen3:4b` on a slower PC).
+"Thinking" models like Qwen3 and DeepSeek-R1 reason before answering; the app hides that
+and shows "🤔 Thinking it through first…".
 
 ---
 
@@ -66,13 +64,14 @@ All optional. Create a text file named `.env` in the `files` folder:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MODEL_NAME` | `mistral` | Which Ollama model to use |
+| `MODEL_NAME` | `mistral` | Starting model (the 🧠 Model button overrides it) |
 | `MODEL_CONTEXT_TOKENS` | `8192` | How much text the model can read at once |
 | `MODEL_TIMEOUT` | `600` | Seconds to wait for an answer (slow PCs need longer) |
 | `OLLAMA_URL` | `http://localhost:11434` | Where Ollama runs |
 | `PORT` | `5000` | Web page port |
 | `HOST` | `127.0.0.1` | Keep this: the app can run code and change its own files |
-| `DATA_DIR` | the `files` folder | Where chats, uploads and backups are stored |
+| `DATA_DIR` | the `files` folder | Where chats, uploads, saved files and backups are stored |
+| `MAX_UPLOAD_MB` | `200` | Largest upload (documents and folders) |
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
 | `ENABLE_SELF_IMPROVEMENT` | `true` | Allow approved upgrades to change the code |
 | `LEARNING_ENABLED` | `true` | Save usage statistics and feedback |
@@ -93,6 +92,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 | Installing the libraries fails | Check your internet connection. Use Python 3.12 or 3.13, delete the `files/.venv` folder and double-click `Start AI.bat` again. |
 | `No module named 'exceptions'` | An old package called `docx` is installed. Delete `files/.venv` and start again. |
 | Port 5000 is in use | Add `PORT=5050` to `files/.env`. |
+| Files can't be saved ("Access is denied") | Windows is blocking Python from writing there: usually *Controlled folder access* or a OneDrive-synced Documents/Desktop folder. Move the project to a simple folder like `C:\AI\` (or set `DATA_DIR`), or allow Python in Windows Security → Ransomware protection. |
 | Answers are slow | Normal on PCs without a graphics card. Try a smaller model, e.g. `MODEL_NAME=qwen3:4b`. |
 
 ## For developers
@@ -106,11 +106,12 @@ files/
   memory.py                 long-term memory (ChromaDB)
   knowledge_base.py         uploaded documents (ChromaDB)
   calculator.py             exact arithmetic and equation solving
+  model_manager.py          switching, downloading and unloading models
   web_search.py             web search (ddgs, Wikipedia, DuckDuckGo instant answers)
   weather_provider.py       Open-Meteo weather
   ...                       one module per feature
   templates/, static/       the web page
-  tests/                    259 automated tests
+  tests/                    automated tests (fake Ollama server)
 ```
 
 Run the tests (after the first start has created `.venv`):

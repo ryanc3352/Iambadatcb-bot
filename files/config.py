@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,10 +26,21 @@ DATABASE_PATH = DATA_DIR / "conversation_history.db"
 VECTOR_DB_PATH = DATA_DIR / "data" / "chroma"
 AI_FILES_PATH = DATA_DIR / "ai_files"
 BACKUPS_PATH = DATA_DIR / "backups"
+USER_SETTINGS_PATH = DATA_DIR / "user_settings.json"  # choices made in the app (e.g. the model)
+
+
+def _saved_setting(key):
+    """A setting chosen in the app, or None."""
+    try:
+        value = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8")).get(key)
+        return value if isinstance(value, str) and value else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 # LLM Settings
 OLLAMA_URL = os.getenv('OLLAMA_URL', "http://localhost:11434")
-MODEL_NAME = os.getenv('MODEL_NAME', "mistral")
+# The model picked with the Model button wins; MODEL_NAME in .env is the starting default
+MODEL_NAME = _saved_setting('model') or os.getenv('MODEL_NAME', "mistral")
 MODEL_TEMPERATURE = float(os.getenv('MODEL_TEMPERATURE', 0.7))
 MODEL_MAX_TOKENS = int(os.getenv('MODEL_MAX_TOKENS', 4096))
 MODEL_CONTEXT_TOKENS = int(os.getenv('MODEL_CONTEXT_TOKENS', 8192))
@@ -48,7 +60,7 @@ LEARNING_ENABLED = _env_bool('LEARNING_ENABLED', True)
 HOST = os.getenv('HOST', "127.0.0.1")
 PORT = int(os.getenv('PORT', 5000))
 DEBUG = _env_bool('FLASK_DEBUG', False)
-MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', 50))
+MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', 200))
 
 # Files the AI may upgrade (via UPGRADE_REQUEST, with user approval)
 UPGRADEABLE_FILES = [
@@ -115,9 +127,18 @@ BEHAVIOR GUIDELINES:
    - Remember user preferences
    - Adapt responses based on history
 
-5. FILE OPERATIONS:
-   - Code the user runs starts in the ./ai_files/ folder; use relative paths
-   - Use it for storing notes, data, projects
+5. SAVING FILES FOR THE USER:
+   When the user asks you to create, save, write or update a file (notes, lists, code,
+   data...), reply with a block like this; the user clicks Save to store it in their
+   ai_files folder:
+   SAVE_FILE: shopping/list.txt
+   ```
+   milk
+   eggs
+   ```
+   - Use a relative path. To change an existing file, send its complete new content
+   - The user's saved files, and the content of files they name, are shown above
+   - Code the user runs also starts in the ai_files folder
 
 6. MATHS:
    You make arithmetic mistakes when you calculate in your head. When the app gives

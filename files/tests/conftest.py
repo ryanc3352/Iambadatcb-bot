@@ -34,6 +34,9 @@ class FakeOllama:
         self.delay, self.stream_error = delay, stream_error
         self.replies = []  # if set, each request takes the next reply from here
         self.pulled, self.pull_error = [], None
+        self.models = ["mistral:latest"]        # downloaded
+        self.loaded, self.unloaded = [], []     # in memory / unloaded via keep_alive=0
+        self.token_delay = self.pull_delay = 0  # slow streaming/downloads down (for manual UI tests)
         self.requests.clear()
 
     def next_reply(self):
@@ -60,7 +63,9 @@ class FakeOllama:
 
             def do_GET(self):
                 if self.path == "/api/tags":
-                    self._send_json(200, {"models": [{"name": "mistral:latest"}]})
+                    self._send_json(200, {"models": [{"name": m, "size": 4_100_000_000} for m in fake.models]})
+                elif self.path == "/api/ps":
+                    self._send_json(200, {"models": [{"name": m} for m in fake.loaded]})
                 else:
                     self._send_json(404, {"error": "not found"})
 
@@ -75,8 +80,26 @@ class FakeOllama:
                     lines.append({"error": fake.pull_error} if fake.pull_error else {"status": "success"})
                     for line in lines:
                         self.wfile.write((json.dumps(line) + "\n").encode())
+                        self.wfile.flush()
+                        time.sleep(fake.pull_delay)
+                    if not fake.pull_error:
+                        name = payload["name"]
+                        fake.models.append(name if ":" in name else f"{name}:latest")
+                    return
+                if self.path == "/api/generate" and "prompt" not in payload:
+                    # load (no prompt) or unload (keep_alive=0) a model
+                    model = payload["model"]
+                    if payload.get("keep_alive") == 0:
+                        fake.unloaded.append(model)
+                        fake.loaded = [m for m in fake.loaded if m.split(":")[0] != model.split(":")[0]]
+                        self._send_json(200, {"model": model, "done": True, "done_reason": "unload"})
+                    else:
+                        fake.loaded.append(model)
+                        self._send_json(200, {"model": model, "done": True, "done_reason": "load"})
                     return
                 fake.requests.append(payload)
+                if payload["model"] not in fake.loaded:  # answering loads the model, like Ollama
+                    fake.loaded.append(payload["model"])
                 if fake.delay:
                     time.sleep(fake.delay)
                 if fake.status != 200:
@@ -95,6 +118,7 @@ class FakeOllama:
                     token = word if i == 0 else " " + word
                     self.wfile.write((json.dumps({"response": token, "done": False}) + "\n").encode())
                     self.wfile.flush()
+                    time.sleep(fake.token_delay)
                     if fake.stream_error:
                         self.wfile.write((json.dumps({"error": fake.stream_error}) + "\n").encode())
                         return

@@ -6,8 +6,8 @@ from memory import MIN_RELEVANCE, get_chroma_client, relevant_documents
 class KnowledgeBase:
     """RAG system for document indexing and search."""
 
-    ALLOWED_TYPES = {'.pdf', '.txt', '.docx', '.py', '.js', '.css', '.html',
-                     '.json', '.md', '.yaml', '.yml', '.sh'}
+    ALLOWED_TYPES = {'.pdf', '.docx', '.txt', '.md', '.csv', '.log', '.json', '.xml', '.yaml', '.yml',
+                     '.toml', '.ini', '.cfg', '.html', '.css', '.js', '.ts', '.py', '.sql', '.sh', '.bat', '.ps1'}
 
     def __init__(self, db_path="./data/chroma"):
         self.client = get_chroma_client(str(db_path))

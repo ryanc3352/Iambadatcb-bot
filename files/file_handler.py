@@ -1,8 +1,12 @@
+import re
 from pathlib import Path
 
 
 class FileHandler:
     """Safe file operations for the AI, restricted to one directory."""
+
+    # Managed by FolderManager; not shown or writable as "the user's files"
+    INTERNAL = {'user_uploads', 'folder_registry.json'}
 
     def __init__(self, allowed_directory="./ai_files"):
         """
@@ -63,6 +67,33 @@ class FileHandler:
         if not target_dir.is_dir():
             return []
         return sorted(item.name for item in target_dir.iterdir() if item.is_file())
+
+    def list_all_files(self):
+        """Every file saved in the folder (including subfolders), newest first.
+
+        Returns:
+            list: [{'path': 'notes/todo.txt', 'size': bytes, 'modified': timestamp}]
+        """
+        files = []
+        for path in self.allowed_directory.rglob('*'):
+            relative = path.relative_to(self.allowed_directory)
+            if path.is_file() and relative.parts[0] not in self.INTERNAL:
+                stat = path.stat()
+                files.append({'path': relative.as_posix(), 'size': stat.st_size, 'modified': stat.st_mtime})
+        return sorted(files, key=lambda f: f['modified'], reverse=True)
+
+    @classmethod
+    def clean_relative_path(cls, file_path):
+        """Turn a path the model wrote ('notes\\todo.txt', '/todo.txt', 'C:\\x.txt') into a safe
+        relative one, or raise ValueError."""
+        text = str(file_path).strip().strip('`"\'').replace('\\', '/')
+        text = re.sub(r"^[A-Za-z]:", "", text).lstrip('/')
+        parts = [part for part in text.split('/') if part not in ('', '.')]
+        if not parts or '..' in parts:
+            raise ValueError(f"Not a usable file name: {file_path!r}")
+        if parts[0] in cls.INTERNAL:
+            raise ValueError(f"'{parts[0]}' is reserved; choose another name")
+        return '/'.join(parts)
 
     def delete_file(self, file_path):
         """Delete a file."""

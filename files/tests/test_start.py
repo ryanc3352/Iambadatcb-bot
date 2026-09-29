@@ -9,10 +9,19 @@ import start
 def test_read_settings(tmp_path):
     env = tmp_path / ".env"
     env.write_text("# my settings\nMODEL_NAME='qwen3:8b'\nPORT=6000\nOTHER=x\nHOST = 0.0.0.0\n", encoding="utf-8")
-    settings = start.read_settings(env, environ={"PORT": "7000"})
+    settings = start.read_settings(env, environ={"PORT": "7000", "DATA_DIR": str(tmp_path)})
     assert settings == {"MODEL_NAME": "qwen3:8b", "OLLAMA_URL": "http://localhost:11434",
-                        "HOST": "0.0.0.0", "PORT": "7000"}
-    assert start.read_settings(tmp_path / "missing.env", environ={}) == start.DEFAULTS
+                        "HOST": "0.0.0.0", "PORT": "7000", "DATA_DIR": str(tmp_path)}
+    assert start.read_settings(tmp_path / "missing.env", environ={"DATA_DIR": str(tmp_path)})["MODEL_NAME"] == "mistral"
+
+
+def test_model_picked_in_the_app_wins(tmp_path):
+    (tmp_path / "user_settings.json").write_text('{"model": "llama3.2"}', encoding="utf-8")
+    env = tmp_path / ".env"
+    env.write_text("MODEL_NAME=qwen3:8b\n", encoding="utf-8")
+    assert start.read_settings(env, environ={"DATA_DIR": str(tmp_path)})["MODEL_NAME"] == "llama3.2"
+    (tmp_path / "user_settings.json").write_text("{broken", encoding="utf-8")
+    assert start.read_settings(env, environ={"DATA_DIR": str(tmp_path)})["MODEL_NAME"] == "qwen3:8b"
 
 
 def test_model_installed():

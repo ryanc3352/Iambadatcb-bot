@@ -39,7 +39,7 @@ def test_index_and_static(client):
     page = client.get("/")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert "js/script.js" in html and "Upload Folder" in html
+    assert "js/script.js" in html and "Add Folder" in html and "My Files" in html and "model-btn" in html
     assert client.get("/static/js/script.js").status_code == 200
     assert client.get("/static/css/style.css").status_code == 200
 
@@ -55,7 +55,8 @@ def test_chat_roundtrip_and_prompt(client, fake_ollama):
     before = ws.conversation_history.count_messages()
     response = post(client, "/api/chat", {"message": "hello there"})
     assert response.status_code == 200
-    assert response.get_json() == {"response": "Hello from the fake model!", "has_code": False, "code": None}
+    assert response.get_json() == {"response": "Hello from the fake model!", "has_code": False, "code": None,
+                                   "files": []}
     assert ws.conversation_history.count_messages() == before + 2
 
     prompt = fake_ollama.last_prompt
@@ -103,7 +104,8 @@ def test_stream(client, fake_ollama):
     before = ws.conversation_history.count_messages()
     events = sse_events(post(client, "/api/chat-stream", {"message": "count"}))
     assert "".join(e.get("token", "") for e in events) == "one two three"
-    assert events[-1] == {"done": True, "has_code": False, "code": None, "has_upgrade": False, "error": None}
+    assert events[-1] == {"done": True, "has_code": False, "code": None, "has_upgrade": False,
+                          "files": [], "error": None}
     assert ws.conversation_history.count_messages() == before + 2
 
 

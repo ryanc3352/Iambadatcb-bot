@@ -5,7 +5,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, send_file
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
@@ -15,9 +15,10 @@ from config import (
     OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, MODEL_CONTEXT_TOKENS, MODEL_TIMEOUT,
     CONTEXT_MESSAGES, SEARCH_TOP_K, SYSTEM_PROMPT,
     ENABLE_CODE_EXECUTION, CODE_EXECUTION_TIMEOUT, ENABLE_SELF_IMPROVEMENT, LEARNING_ENABLED,
-    HOST, PORT, DEBUG, MAX_UPLOAD_MB, UPGRADEABLE_FILES,
+    HOST, PORT, DEBUG, MAX_UPLOAD_MB, UPGRADEABLE_FILES, USER_SETTINGS_PATH,
 )
-from llm_interface import LLMInterface, LLMError
+from llm_interface import LLMInterface, LLMError, ThinkFilter
+from model_manager import ModelManager
 from conversation_history import ConversationHistory
 from memory import Memory
 from code_executor import CodeExecutor
@@ -55,6 +56,7 @@ folder_manager = FolderManager(AI_FILES_PATH)
 analyzer = SelfAnalyzer(BASE_DIR, BACKUPS_PATH)
 learner = LearningSystem(BACKUPS_PATH, enabled=LEARNING_ENABLED)
 improver = AutonomousImprover(analyzer, learner, BACKUPS_PATH)
+model_manager = ModelManager(llm_interface, USER_SETTINGS_PATH)
 
 WEATHER_KEYWORDS = ['weather', 'forecast', 'temperature', 'rain', 'snow', 'sunny', 'cloudy',
                     'celsius', 'fahrenheit', 'degrees', 'wind']
@@ -66,6 +68,13 @@ NOT_PLACES = {'a', 'an', 'my', 'your', 'our', 'their', 'this', 'that', 'some', '
               'how', 'is', 'will', 'the', 'good', 'nice', 'bad', 'current', 'general', 'python', 'code'}
 # Largest file whose code is added to the prompt when the user names it
 MAX_CODE_CONTEXT_CHARS = 12000
+# Files the AI saves for the user
+MAX_SAVED_FILE_CHARS = 1_000_000
+FILE_WORDS = ['file', 'files', 'save', 'saved', 'note', 'notes', 'list', 'document', 'create', 'add']
+SAVE_FILE_BLOCK = re.compile(
+    r"SAVE_FILE:\**[ \t]*`?([^\n`*]+?)`?\**[ \t]*\n+```[\w+.-]*[ \t]*\n(.*?)\n?```", re.DOTALL)
+# Folders picked in the browser: skip bulky tool folders
+SKIPPED_UPLOAD_PARTS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.idea', '.vscode'}
 
 
 def json_body():
@@ -141,6 +150,39 @@ def get_live_context(user_input, found_locally=False):
     return ""
 
 
+def get_file_context(user_input):
+    """The user's saved files: their names when files come up, and the content of files they name."""
+    files = [f['path'] for f in file_handler.list_all_files()]
+    if not files:
+        return ""
+    text = user_input.lower()
+    named = [f for f in files if f.lower() in text or Path(f).name.lower() in text][:2]
+    parts = []
+    if named or _contains_word(text, FILE_WORDS):
+        listing = ", ".join(files[:30]) + (" ..." if len(files) > 30 else "")
+        parts.append(f"The user's saved files (in their ai_files folder): {listing}")
+    for name in named:
+        try:
+            content = file_handler.read_file(name)
+        except (OSError, ValueError, PermissionError):
+            continue
+        shown = content[:4000] + ("\n[... rest of file not shown]" if len(content) > 4000 else "")
+        parts.append(f"Current content of {name}:\n```\n{shown}\n```")
+    return "\n\n".join(parts)
+
+
+def find_file_saves(response):
+    """Files the model wants to save: SAVE_FILE blocks -> [{'path', 'content'}]."""
+    saves = []
+    for match in SAVE_FILE_BLOCK.finditer(response):
+        try:
+            path = file_handler.clean_relative_path(match.group(1))
+        except ValueError:
+            continue
+        saves.append({'path': path, 'content': match.group(2)})
+    return saves[:5]
+
+
 def get_code_context(user_input):
     """Add the current code of upgradeable files the user names, so upgrades start from the real file.
 
@@ -181,12 +223,13 @@ def build_prompt(user_input, extra_context=""):
     live_context = get_live_context(user_input, found_locally=bool(doc_context))
     calculator_context = math_context(user_input)
     code_context = get_code_context(user_input)
+    file_context = get_file_context(user_input)
     recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
     formatted_history = conversation_history.format_for_prompt(recent_messages)
     feedback = learner.get_feedback_guidance()
 
     now = datetime.now().strftime("%A %d %B %Y, %H:%M")
-    sections = [SYSTEM_PROMPT, f"Current date and time: {now}", feedback, extra_context, code_context,
+    sections = [SYSTEM_PROMPT, f"Current date and time: {now}", feedback, extra_context, code_context, file_context,
                 live_context, calculator_context, doc_context, similar_context,
                 f"Recent conversation:\n{formatted_history}" if formatted_history else ""]
     context = "\n\n".join(s.strip() for s in sections if s and s.strip())
@@ -228,10 +271,15 @@ def stream_answer(user_input, prompt, extra_context=""):
 
     If the reply starts with 'SEARCH: <query>', that reply is dropped, a ('search', query)
     event is sent, and the answer written with the search results is streamed instead.
+    Reasoning models' <think>...</think> text is hidden; a ('thinking', True) event is sent.
     """
-    stream = llm_interface.generate_response_stream(prompt)
+    raw = llm_interface.generate_response_stream(prompt)
+    stream = _visible_tokens(raw)
     buffer, passthrough = "", False
     for token in stream:
+        if isinstance(token, _Thinking):
+            yield 'thinking', True
+            continue
         if passthrough:
             yield 'token', token
             continue
@@ -246,6 +294,7 @@ def stream_answer(user_input, prompt, extra_context=""):
         passthrough = True
         yield 'token', buffer
     stream.close()                        # stop the model if it's still writing
+    raw.close()
     if passthrough:
         return
     query = search_request(buffer)
@@ -255,13 +304,33 @@ def stream_answer(user_input, prompt, extra_context=""):
         return
     yield 'search', query
     extra = "\n\n".join(part for part in (extra_context, search_context(query)) if part)
-    for token in llm_interface.generate_response_stream(build_prompt(user_input, extra)):
-        yield 'token', token
+    for token in _visible_tokens(llm_interface.generate_response_stream(build_prompt(user_input, extra))):
+        yield ('thinking', True) if isinstance(token, _Thinking) else ('token', token)
+
+
+class _Thinking(str):
+    """Marker yielded by _visible_tokens when a model starts thinking."""
+
+
+def _visible_tokens(tokens):
+    """Tokens without <think>...</think>; yields a _Thinking marker when thinking starts."""
+    think = ThinkFilter()
+    announced = False
+    for token in tokens:
+        visible = think.feed(token)
+        if think.started and not announced:
+            announced = True
+            yield _Thinking()
+        if visible:
+            yield visible
+    rest = think.flush()
+    if rest:
+        yield rest
 
 
 def find_runnable_code(response):
-    """Code the user may run. Upgrade requests are applied, not run, so they don't count."""
-    if "UPGRADE_REQUEST:" in response:
+    """Code the user may run. Upgrades and files to save are not run, so they don't count."""
+    if "UPGRADE_REQUEST:" in response or "SAVE_FILE:" in response:
         return False, None
     return code_executor.extract_code(response)
 
@@ -280,6 +349,20 @@ def record_exchange(user_input, response):
 def handle_llm_error(e):
     """The model couldn't answer (Ollama not running, model missing, timeout)."""
     return jsonify({'error': str(e)}), 503
+
+
+WINDOWS_WRITE_HINT = ("Windows may be blocking Python from writing in this folder (Controlled folder access, "
+                      "OneDrive, or a read-only location). Move the project to a simple folder like C:\\AI "
+                      "or set DATA_DIR in .env.")
+
+
+@app.errorhandler(PermissionError)
+def handle_permission_error(e):
+    """Our own path checks explain themselves; errors from the operating system get a hint."""
+    if getattr(e, 'errno', None) is None:
+        return jsonify({'error': str(e)}), 403
+    app.logger.error("Write blocked: %s", e)
+    return jsonify({'error': f"{e}. {WINDOWS_WRITE_HINT}"}), 500
 
 
 @app.errorhandler(Exception)
@@ -308,7 +391,7 @@ def chat():
     record_exchange(user_input, response)
 
     has_code, code = find_runnable_code(response)
-    return jsonify({'response': response, 'has_code': has_code, 'code': code})
+    return jsonify({'response': response, 'has_code': has_code, 'code': code, 'files': find_file_saves(response)})
 
 
 @app.route('/api/chat-stream', methods=['POST'])
@@ -329,6 +412,9 @@ def chat_stream():
                 if kind == 'search':
                     yield f"data: {json.dumps({'searching': value})}\n\n"
                     continue
+                if kind == 'thinking':
+                    yield f"data: {json.dumps({'thinking': True})}\n\n"
+                    continue
                 response_text += value
                 yield f"data: {json.dumps({'token': value})}\n\n"
             record_exchange(user_input, response_text)
@@ -343,6 +429,7 @@ def chat_stream():
             'has_code': has_code,
             'code': code,
             'has_upgrade': "UPGRADE_REQUEST:" in response_text,
+            'files': [] if error else find_file_saves(response_text),
             'error': error,
         }
         yield f"data: {json.dumps(done)}\n\n"
@@ -352,6 +439,22 @@ def chat_stream():
         mimetype='text/event-stream',
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
     )
+
+
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """Current model, downloaded models, models in memory, suggestions and download progress"""
+    return jsonify({'success': True, **model_manager.status()})
+
+
+@app.route('/api/models/select', methods=['POST'])
+def select_model():
+    """Switch model; downloads it first if needed and unloads the previous one"""
+    try:
+        result = model_manager.select(json_body().get('model', ''))
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, **result, 'current': llm_interface.model_name})
 
 
 @app.route('/api/execute-code', methods=['POST'])
@@ -415,7 +518,7 @@ def get_stats():
         'success': True,
         'message_count': total,
         'conversations': total // 2,
-        'files': len(file_handler.list_files()),
+        'files': len(file_handler.list_all_files()),
         'code_runs': learner.metrics.get('code_executions', 0),
     })
 
@@ -631,6 +734,90 @@ def upload_folder():
     return jsonify({'success': False, 'error': message}), 400
 
 
+@app.route('/api/folders/upload-files', methods=['POST'])
+def upload_folder_files():
+    """Upload a folder picked in the browser (no ZIP needed). Each file's name is its path in the folder."""
+    uploads = request.files.getlist('files')
+    if not uploads:
+        return jsonify({'error': 'No files provided'}), 400
+
+    first = uploads[0].filename.replace('\\', '/').split('/')
+    folder_name = secure_filename(request.form.get('folder_name', '') or first[0]) or 'uploaded_folder'
+    saved = 0
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        root = Path(temp_dir) / folder_name
+        for upload in uploads:
+            parts = upload.filename.replace('\\', '/').split('/')
+            parts = parts[1:] if len(parts) > 1 else parts  # drop the folder's own name
+            if SKIPPED_UPLOAD_PARTS & set(parts):
+                continue
+            safe_parts = [secure_filename(p) for p in parts]
+            if not all(safe_parts):
+                continue
+            target = root.joinpath(*safe_parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            upload.save(str(target))
+            saved += 1
+        if not saved:
+            return jsonify({'error': 'No usable files in that folder'}), 400
+        success, message = folder_manager.add_folder(root, folder_name)
+
+    if success:
+        return jsonify({'success': True, 'message': message, 'folder': folder_name, 'files': saved})
+    return jsonify({'success': False, 'error': message}), 400
+
+
+# ---------------- files the AI saves for the user (ai_files folder)
+
+@app.route('/api/files', methods=['GET'])
+def list_saved_files():
+    """Files in the user's ai_files folder"""
+    return jsonify({'success': True, 'files': file_handler.list_all_files()})
+
+
+@app.route('/api/files/save', methods=['POST'])
+def save_file():
+    """Save a file the AI proposed (the user clicked Save)"""
+    data = json_body()
+    content = data.get('content')
+    if not isinstance(content, str):
+        return jsonify({'error': 'No file content provided'}), 400
+    if len(content) > MAX_SAVED_FILE_CHARS:
+        return jsonify({'error': 'File is too large'}), 400
+    try:
+        path = file_handler.clean_relative_path(data.get('path', ''))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    file_handler.write_file(path, content)
+    learner.log_file_operation('save', True)
+    return jsonify({'success': True, 'path': path, 'message': f"✅ Saved {path} in your ai_files folder"})
+
+
+@app.route('/api/files/download', methods=['GET'])
+def download_file():
+    """Download one of the user's saved files"""
+    try:
+        path = file_handler._resolve(file_handler.clean_relative_path(request.args.get('path', '')))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if not path.is_file():
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(path, as_attachment=True, download_name=path.name)
+
+
+@app.route('/api/files', methods=['DELETE'])
+def delete_saved_file():
+    """Delete one of the user's saved files"""
+    try:
+        path = file_handler.clean_relative_path(request.args.get('path', ''))
+        file_handler.delete_file(path)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except FileNotFoundError:
+        return jsonify({'error': 'File not found'}), 404
+    return jsonify({'success': True, 'message': f"Deleted {path}"})
+
+
 @app.route('/api/folders/list', methods=['GET'])
 def list_folders():
     """List all uploaded folders"""
@@ -710,7 +897,8 @@ or write code that works with these files."""
     learner.log_feature_usage('folder_chat')
 
     has_code, code = find_runnable_code(response)
-    return jsonify({'response': response, 'folder': folder_name, 'has_code': has_code, 'code': code})
+    return jsonify({'response': response, 'folder': folder_name, 'has_code': has_code, 'code': code,
+                    'files': find_file_saves(response)})
 
 
 # ==================== SELF-IMPROVEMENT ENDPOINTS ====================

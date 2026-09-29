@@ -1,10 +1,61 @@
 import json
+import re
 
 import requests
 
 
 class LLMError(Exception):
     """Raised when Ollama can't produce a response (not running, model missing, timeout...)."""
+
+
+THINK_OPEN, THINK_CLOSE = "<think>", "</think>"
+
+
+def strip_thinking(text):
+    """Remove the <think>...</think> reasoning that models like Qwen3 and DeepSeek-R1 write first."""
+    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+    return text.split(THINK_OPEN, 1)[0] if THINK_OPEN in text else text  # unfinished thinking
+
+
+class ThinkFilter:
+    """Removes <think>...</think> from streamed text, even when a tag is split across tokens."""
+
+    def __init__(self):
+        self.pending = ""
+        self.inside = False
+        self.started = False       # a thinking block was seen
+        self.trim_start = False    # drop the blank lines right after </think>
+
+    def feed(self, token):
+        """Returns the visible part of the text streamed so far."""
+        self.pending += token
+        visible = ""
+        while True:
+            tag = THINK_CLOSE if self.inside else THINK_OPEN
+            index = self.pending.find(tag)
+            if index >= 0:
+                if not self.inside:
+                    visible += self.pending[:index]
+                    self.started = True
+                self.pending = self.pending[index + len(tag):]
+                self.trim_start = self.inside or self.trim_start
+                self.inside = not self.inside
+                continue
+            # keep a possible partial tag (e.g. "<thi") for the next token
+            keep = next((n for n in range(len(tag) - 1, 0, -1) if self.pending.endswith(tag[:n])), 0)
+            ready = self.pending[:len(self.pending) - keep]
+            self.pending = self.pending[len(self.pending) - keep:]
+            if not self.inside:
+                visible += ready
+            if self.trim_start:
+                visible = visible.lstrip()
+                self.trim_start = not visible
+            return visible
+
+    def flush(self):
+        """Text held back at the end of the stream."""
+        rest, self.pending = ("" if self.inside else self.pending), ""
+        return rest
 
 
 class LLMInterface:
@@ -93,7 +144,7 @@ class LLMInterface:
             )
             if response.status_code != 200:
                 raise LLMError(f"Ollama returned {response.status_code}: {self._error_text(response)}")
-            return response.json().get("response", "").strip()
+            return strip_thinking(response.json().get("response", "")).strip()
 
         except requests.exceptions.Timeout:
             raise LLMError("The model took too long to answer")
@@ -146,6 +197,67 @@ class LLMInterface:
             raise LLMError(f"Can't connect to Ollama at {self.base_url}. Is it running?")
         except requests.exceptions.RequestException as e:
             raise LLMError(f"Request failed - {e}")
+
+    # ---- model management (used by the model picker)
+
+    def _get(self, path, timeout=10):
+        try:
+            response = requests.get(f"{self.base_url}{path}", timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.ConnectionError:
+            raise LLMError(f"Can't connect to Ollama at {self.base_url}. Is it running?")
+        except (requests.exceptions.RequestException, ValueError) as e:
+            raise LLMError(f"Ollama request failed - {e}")
+
+    def list_models(self):
+        """Downloaded models: [{'name', 'size'}] (size in bytes)."""
+        return [{'name': m['name'], 'size': m.get('size', 0)} for m in self._get("/api/tags").get('models', [])]
+
+    def running_models(self):
+        """Names of the models currently loaded in memory."""
+        return [m['name'] for m in self._get("/api/ps").get('models', [])]
+
+    def pull_model(self, name):
+        """Download a model. Yields Ollama's progress updates ({'status', 'completed', 'total'}).
+
+        Raises:
+            LLMError: If the download fails (e.g. unknown model name)
+        """
+        try:
+            with requests.post(f"{self.base_url}/api/pull", json={"model": name, "name": name, "stream": True},
+                               timeout=(10, 600), stream=True) as response:
+                if response.status_code != 200:
+                    raise LLMError(f"Ollama returned {response.status_code}: {self._error_text(response)}")
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    status = json.loads(line)
+                    if status.get("error"):
+                        raise LLMError(status["error"])
+                    yield status
+        except requests.exceptions.ConnectionError:
+            raise LLMError(f"Can't connect to Ollama at {self.base_url}. Is it running?")
+        except (requests.exceptions.RequestException, ValueError) as e:
+            raise LLMError(f"Download failed - {e}")
+
+    def _load_or_unload(self, name, keep_alive=None):
+        payload = {"model": name}
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
+        try:
+            response = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=(10, 300))
+            return response.status_code == 200
+        except requests.exceptions.RequestException:
+            return False
+
+    def load_model(self, name):
+        """Load a model into memory now, so the first answer comes faster."""
+        return self._load_or_unload(name)
+
+    def unload_model(self, name):
+        """Free the memory a model uses (Ollama unloads it when keep_alive is 0)."""
+        return self._load_or_unload(name, keep_alive=0)
 
     def test_model(self):
         """Test the model with a simple request."""
