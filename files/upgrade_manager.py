@@ -1,3 +1,4 @@
+import ast
 import json
 import re
 import shutil
@@ -33,6 +34,19 @@ class UpgradeManager:
         match = re.fullmatch(r"```[\w-]*\n?([\s\S]*?)\n?```", code)
         return (match.group(1) if match else code).strip() + "\n"
 
+    @staticmethod
+    def _top_level_names(code):
+        """Names of the classes, functions and variables a module defines at the top level"""
+        names = set()
+        for node in ast.parse(code).body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Assign):
+                names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+        return names
+
     def _backup(self, file_path):
         """Copy a file into the backup folder and return the backup path."""
         stamp = time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}"
@@ -54,6 +68,19 @@ class UpgradeManager:
             return False, str(e)
         except SyntaxError as e:
             return False, f"Syntax error: {e}"
+
+        # The model often writes a whole file from memory; refuse versions that drop
+        # things the rest of the app imports (it would break on the next restart)
+        if file_path.exists():
+            try:
+                old_names = self._top_level_names(file_path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                old_names = set()
+            missing = sorted(old_names - self._top_level_names(code))
+            if missing:
+                return False, ("Not applied: the new code removes " + ", ".join(missing[:10]) +
+                               (" ..." if len(missing) > 10 else "") +
+                               " which the current file defines. Ask for an upgrade that keeps them.")
 
         try:
             backup_path = self._backup(file_path) if file_path.exists() else None

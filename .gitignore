@@ -12,7 +12,10 @@ venv/
 files/data/
 files/ai_files/
 files/backups/
-files/temp*/
 
 # Local copy of the code before the cleanup
 files_backup_original/
+
+# Tool output
+.pytest_cache/
+.playwright-mcp/

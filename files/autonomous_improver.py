@@ -16,26 +16,29 @@ class AutonomousImprover:
         self.improvement_history = Path(data_dir) / "improvement_history.json"
         self.load_queues()
 
+    @staticmethod
+    def _read_list(path):
+        """Read a JSON list, returning [] if the file is missing or corrupt"""
+        try:
+            if path.exists():
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Could not read {path.name}, starting fresh: {e}")
+        return []
+
     def load_queues(self):
         """Load improvement queues"""
-        if self.improvement_queue.exists():
-            with open(self.improvement_queue, 'r') as f:
-                self.queue = json.load(f)
-        else:
-            self.queue = []
-
-        if self.improvement_history.exists():
-            with open(self.improvement_history, 'r') as f:
-                self.history = json.load(f)
-        else:
-            self.history = []
+        self.queue = self._read_list(self.improvement_queue)
+        self.history = self._read_list(self.improvement_history)
 
     def save_queues(self):
         """Save improvement queues"""
-        with open(self.improvement_queue, 'w') as f:
+        with open(self.improvement_queue, 'w', encoding='utf-8') as f:
             json.dump(self.queue, f, indent=2)
 
-        with open(self.improvement_history, 'w') as f:
+        with open(self.improvement_history, 'w', encoding='utf-8') as f:
             json.dump(self.history, f, indent=2)
 
     def analyze_and_propose(self, all_analyses=None):

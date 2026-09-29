@@ -7,8 +7,12 @@ class ConversationHistory:
     """Manages conversation history storage using SQLite database.
 
     Stores user and assistant messages with timestamps for persistent
-    conversation tracking and context retrieval.
+    conversation tracking and context retrieval. A 'System' marker row starts
+    a new conversation: messages before it are no longer used as context.
     """
+
+    MARKER_ROLE = 'System'
+    NEW_CONVERSATION = '--- new conversation ---'
 
     def __init__(self, db_path="conversation_history.db"):
         """Initialize conversation history database.
@@ -59,8 +63,15 @@ class ConversationHistory:
             print(f"Database error adding message: {e}")
             return None
 
-    def get_all_messages(self):
-        """Get all messages from conversation history.
+    def start_new_conversation(self):
+        """Start a new conversation; earlier messages stop being used as context."""
+        return self.add_message(self.MARKER_ROLE, self.NEW_CONVERSATION)
+
+    def get_all_messages(self, limit=None):
+        """Get messages from conversation history, oldest first.
+
+        Args:
+            limit (int): Only return the most recent `limit` messages
 
         Returns:
             list: List of message dictionaries with role, content and timestamp
@@ -68,15 +79,17 @@ class ConversationHistory:
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    'SELECT role, content, timestamp FROM conversation_history ORDER BY id'
+                    'SELECT role, content, timestamp FROM conversation_history '
+                    'WHERE role != ? ORDER BY id DESC LIMIT ?',
+                    (self.MARKER_ROLE, limit if limit and limit > 0 else -1)
                 ).fetchall()
-            return [{'role': r, 'content': c, 'timestamp': t} for r, c, t in rows]
+            return [{'role': r, 'content': c, 'timestamp': t} for r, c, t in reversed(rows)]
         except sqlite3.Error as e:
             print(f"Database error getting messages: {e}")
             return []
 
     def get_last_n_messages(self, n=5):
-        """Get the last N messages from conversation history.
+        """Get the last N messages of the current conversation.
 
         Args:
             n (int): Number of recent messages to retrieve
@@ -87,8 +100,10 @@ class ConversationHistory:
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    'SELECT role, content FROM conversation_history ORDER BY id DESC LIMIT ?',
-                    (n,)
+                    'SELECT role, content FROM conversation_history '
+                    'WHERE id > (SELECT COALESCE(MAX(id), 0) FROM conversation_history WHERE role = ?) '
+                    'ORDER BY id DESC LIMIT ?',
+                    (self.MARKER_ROLE, n)
                 ).fetchall()
             return [{'role': r, 'content': c} for r, c in reversed(rows)]
         except sqlite3.Error as e:
@@ -115,7 +130,9 @@ class ConversationHistory:
         """
         try:
             with self._connect() as conn:
-                return conn.execute('SELECT COUNT(*) FROM conversation_history').fetchone()[0]
+                return conn.execute(
+                    'SELECT COUNT(*) FROM conversation_history WHERE role != ?', (self.MARKER_ROLE,)
+                ).fetchone()[0]
         except sqlite3.Error as e:
             print(f"Database error counting messages: {e}")
             return 0

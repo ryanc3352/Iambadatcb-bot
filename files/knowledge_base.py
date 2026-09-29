@@ -1,9 +1,6 @@
 from pathlib import Path
 
-import PyPDF2
-from docx import Document
-
-from memory import get_chroma_client
+from memory import MIN_RELEVANCE, get_chroma_client, relevant_documents
 
 
 class KnowledgeBase:
@@ -14,7 +11,8 @@ class KnowledgeBase:
 
     def __init__(self, db_path="./data/chroma"):
         self.client = get_chroma_client(str(db_path))
-        self.collection = self.client.get_or_create_collection(name="documents")
+        # New databases use cosine distance; older ones (l2) still work
+        self.collection = self.client.get_or_create_collection(name="documents", metadata={"hnsw:space": "cosine"})
 
     def add_document(self, file_path, doc_name=None):
         """Index a document. Re-adding a document replaces its old chunks.
@@ -55,27 +53,38 @@ class KnowledgeBase:
 
         return True, f"✅ Document '{doc_name}' added ({len(chunks)} chunks)"
 
+    # PDF/Word libraries are imported only when needed, so a missing or broken
+    # install only affects those file types instead of stopping the whole app
     def _extract_pdf(self, file_path):
-        with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            raise RuntimeError("PDF support needs pypdf: pip install pypdf")
+        reader = PdfReader(str(file_path))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
 
     def _extract_docx(self, file_path):
+        try:
+            from docx import Document
+        except ImportError:
+            # The old 'docx' package (Python 2) fails with "No module named 'exceptions'"
+            raise RuntimeError("Word support needs python-docx: pip uninstall docx, then pip install python-docx")
         doc = Document(str(file_path))
         return "\n".join(para.text for para in doc.paragraphs)
 
     def _chunk_text(self, text, chunk_size=500, overlap=100):
-        step = chunk_size - overlap
-        return [text[i:i + chunk_size] for i in range(0, len(text), step)]
+        """Split text into overlapping chunks (the last chunk ends at the end of the text)."""
+        chunks = []
+        for start in range(0, len(text), chunk_size - overlap):
+            chunks.append(text[start:start + chunk_size])
+            if start + chunk_size >= len(text):
+                break
+        return chunks
 
-    def search(self, query, top_k=5):
-        """Return the most relevant chunks for a query."""
+    def search(self, query, top_k=5, min_similarity=None):
+        """Return the most relevant chunks for a query (optionally only fairly similar ones)."""
         try:
-            count = self.collection.count()
-            if count == 0:
-                return []
-            results = self.collection.query(query_texts=[query], n_results=min(top_k, count))
-            return results['documents'][0] if results['documents'] else []
+            return relevant_documents(self.collection, query, top_k, min_similarity)
         except Exception as e:
             print(f"Knowledge base search error: {e}")
             return []
@@ -98,8 +107,9 @@ class KnowledgeBase:
         except Exception as e:
             return False, f"Error deleting: {e}"
 
-    def get_context_from_documents(self, query, top_k=3):
-        results = self.search(query, top_k)
+    def get_context_from_documents(self, query, top_k=3, min_similarity=MIN_RELEVANCE):
+        """Relevant document text for the prompt, or "" if no document is about the question."""
+        results = self.search(query, top_k, min_similarity)
         if not results:
             return ""
         return "📚 Document Context:\n" + "\n".join(f"- {r}" for r in results)

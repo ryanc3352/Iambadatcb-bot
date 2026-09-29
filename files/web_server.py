@@ -2,6 +2,7 @@ import json
 import re
 import tempfile
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, Response
@@ -11,12 +12,12 @@ from werkzeug.utils import secure_filename
 # config loads the .env file, so import it before anything that reads settings
 from config import (
     BASE_DIR, DATABASE_PATH, VECTOR_DB_PATH, AI_FILES_PATH, BACKUPS_PATH,
-    OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS,
+    OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, MODEL_CONTEXT_TOKENS, MODEL_TIMEOUT,
     CONTEXT_MESSAGES, SEARCH_TOP_K, SYSTEM_PROMPT,
     ENABLE_CODE_EXECUTION, CODE_EXECUTION_TIMEOUT, ENABLE_SELF_IMPROVEMENT, LEARNING_ENABLED,
     HOST, PORT, DEBUG, MAX_UPLOAD_MB, UPGRADEABLE_FILES,
 )
-from llm_interface import LLMInterface
+from llm_interface import LLMInterface, LLMError
 from conversation_history import ConversationHistory
 from memory import Memory
 from code_executor import CodeExecutor
@@ -30,6 +31,7 @@ from folder_manager import FolderManager
 from self_analyzer import SelfAnalyzer
 from learning_system import LearningSystem
 from autonomous_improver import AutonomousImprover
+from calculator import math_context
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
@@ -39,7 +41,8 @@ MAX_ZIP_FILES = 5000
 MAX_ZIP_UNCOMPRESSED = 500 * 1024 * 1024
 
 conversation_history = ConversationHistory(DATABASE_PATH)
-llm_interface = LLMInterface(MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, OLLAMA_URL)
+llm_interface = LLMInterface(MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, OLLAMA_URL,
+                             context_tokens=MODEL_CONTEXT_TOKENS, timeout=MODEL_TIMEOUT)
 memory = Memory(VECTOR_DB_PATH)
 code_executor = CodeExecutor(working_dir=AI_FILES_PATH, timeout=CODE_EXECUTION_TIMEOUT)
 file_handler = FileHandler(AI_FILES_PATH)
@@ -50,13 +53,19 @@ knowledge_base = KnowledgeBase(VECTOR_DB_PATH)
 upgrade_manager = UpgradeManager(BASE_DIR, BACKUPS_PATH, UPGRADEABLE_FILES)
 folder_manager = FolderManager(AI_FILES_PATH)
 analyzer = SelfAnalyzer(BASE_DIR, BACKUPS_PATH)
-learner = LearningSystem(BACKUPS_PATH)
+learner = LearningSystem(BACKUPS_PATH, enabled=LEARNING_ENABLED)
 improver = AutonomousImprover(analyzer, learner, BACKUPS_PATH)
 
 WEATHER_KEYWORDS = ['weather', 'forecast', 'temperature', 'rain', 'snow', 'sunny', 'cloudy',
                     'celsius', 'fahrenheit', 'degrees', 'wind']
-SEARCH_KEYWORDS = ['news', 'latest', 'current', 'breaking', 'recent', 'price', 'stock', 'time in']
+# Clear signs a question needs live data (the model can also ask for a search itself)
+SEARCH_KEYWORDS = ['news', 'latest', 'breaking', 'stock price', 'exchange rate', 'time in']
 TIME_WORDS = r'(?:today|tomorrow|tonight|right now|now|this weekend|this week|morning|afternoon|evening|night)'
+# Words that can follow "in/for/at" or sit next to "weather" but are not places
+NOT_PLACES = {'a', 'an', 'my', 'your', 'our', 'their', 'this', 'that', 'some', 'any', 'i', 'it', 'what',
+              'how', 'is', 'will', 'the', 'good', 'nice', 'bad', 'current', 'general', 'python', 'code'}
+# Largest file whose code is added to the prompt when the user names it
+MAX_CODE_CONTEXT_CHARS = 12000
 
 
 def json_body():
@@ -75,33 +84,56 @@ def extract_location(user_input):
     text = re.sub(rf"(?:\s*\b(?:for\s+)?{TIME_WORDS}\b)+[?.!]*\s*$", "", user_input.strip(), flags=re.IGNORECASE)
     match = re.search(r".*\b(?:in|for|at)\s+([A-Za-z][A-Za-z .,'-]*?)[?.!]*\s*$", text, re.IGNORECASE)
     if match:
-        return match.group(1).strip(" ,.")
+        location = re.sub(r"^the\s+", "", match.group(1).strip(" ,."), flags=re.IGNORECASE)
+        if location and location.split()[0].lower() not in NOT_PLACES:
+            return location
+        return None
 
-    # Fallback: the first capitalized word after a weather keyword ("Tokyo weather" is not handled)
-    words = user_input.split()
+    # "Tokyo weather" / "weather Berlin": capitalized words right before or after a weather word
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", text)
+
+    def is_place_word(word):
+        return word[0].isupper() and word.lower() not in NOT_PLACES
+
     for i, word in enumerate(words):
-        if word.lower().strip('.,!?') in WEATHER_KEYWORDS:
-            for j in range(i + 1, len(words)):
-                if words[j][:1].isupper():
-                    location = ' '.join(words[j:]).rstrip('.,!?')
-                    return re.sub(rf'\s+\b{TIME_WORDS}\b.*$', '', location, flags=re.IGNORECASE).strip()
+        if word.lower() not in WEATHER_KEYWORDS:
+            continue
+        after = []
+        for w in words[i + 1:]:
+            if not is_place_word(w):
+                break
+            after.append(w)
+        before = []
+        for w in reversed(words[:i]):
+            if not is_place_word(w):
+                break
+            before.insert(0, w)
+        if after or before:
+            return ' '.join(after or before)
     return None
 
 
-def get_live_context(user_input):
-    """Fetch weather or web search results when the question needs live data."""
+def get_live_context(user_input, found_locally=False):
+    """Fetch weather or web search results when the question needs live data.
+
+    The keyword web search is skipped when the user's documents already cover the
+    question: local first, the internet second.
+    """
     text = user_input.lower()
     try:
         if _contains_word(text, WEATHER_KEYWORDS):
             location = extract_location(user_input)
-            if not location:
-                return "(No location found in the weather question - ask the user which place they mean.)"
-            learner.log_feature_usage('weather')
-            if 'tomorrow' in text:
-                return weather_provider.get_weather_for_tomorrow(location)
-            return weather_provider.get_weather(location)
+            if location:
+                learner.log_feature_usage('weather')
+                if 'tomorrow' in text:
+                    report = weather_provider.get_weather_for_tomorrow(location)
+                else:
+                    report = weather_provider.get_weather(location)
+                # A lowercase guess ("weather for running") that isn't a real place: add nothing
+                if not (report.startswith("❌ Could not find location") and location[:1].islower()):
+                    return report
 
-        if any(keyword in text for keyword in SEARCH_KEYWORDS):
+        if _contains_word(text, SEARCH_KEYWORDS) and not found_locally:
             learner.log_web_search()
             return web_searcher.search(user_input, num_results=5)
     except Exception as e:
@@ -109,23 +141,129 @@ def get_live_context(user_input):
     return ""
 
 
+def get_code_context(user_input):
+    """Add the current code of upgradeable files the user names, so upgrades start from the real file.
+
+    Files are added in the order they are mentioned, within one size budget.
+    """
+    mentioned = []
+    for name in UPGRADEABLE_FILES:
+        match = re.search(rf"\b{re.escape(name)}\b", user_input, re.IGNORECASE)
+        if match:
+            mentioned.append((match.start(), name))
+
+    parts, budget = [], MAX_CODE_CONTEXT_CHARS
+    for _, name in sorted(mentioned):
+        success, code = upgrade_manager.get_file_code(name)
+        if not success:
+            continue
+        if len(code) <= budget:
+            parts.append(f"Current code of {name}:\n```python\n{code}\n```")
+            budget -= len(code)
+        else:
+            parts.append(f"{name} is too large to show here ({len(code)} characters). "
+                         f"Suggest specific changes instead of a full-file UPGRADE_REQUEST.")
+    return "\n\n".join(parts)
+
+
 def build_prompt(user_input, extra_context=""):
     """Build prompt with context from memory, documents, conversation history, weather, and web search.
 
     Call this before saving the new message, so it isn't repeated in 'Recent conversation'.
     """
-    live_context = get_live_context(user_input)
-    recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
-    formatted_history = conversation_history.format_for_prompt(recent_messages)
+    # Local knowledge first; the web is only searched if nothing relevant is found here
     similar_context = memory.get_context_from_search(user_input, SEARCH_TOP_K)
     doc_context = knowledge_base.get_context_from_documents(user_input, top_k=3)
     if doc_context:
         learner.log_knowledge_base_query()
+    # Only the user's own documents count: an old chat about "latest news" looks similar
+    # to a new question but its answer is out of date
+    live_context = get_live_context(user_input, found_locally=bool(doc_context))
+    calculator_context = math_context(user_input)
+    code_context = get_code_context(user_input)
+    recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
+    formatted_history = conversation_history.format_for_prompt(recent_messages)
+    feedback = learner.get_feedback_guidance()
 
-    sections = [SYSTEM_PROMPT, extra_context, live_context, doc_context, similar_context,
+    now = datetime.now().strftime("%A %d %B %Y, %H:%M")
+    sections = [SYSTEM_PROMPT, f"Current date and time: {now}", feedback, extra_context, code_context,
+                live_context, calculator_context, doc_context, similar_context,
                 f"Recent conversation:\n{formatted_history}" if formatted_history else ""]
     context = "\n\n".join(s.strip() for s in sections if s and s.strip())
     return f"{context}\n\nUser: {user_input}\nAssistant:"
+
+
+SEARCH_PREFIX = "SEARCH:"
+
+
+def search_request(text):
+    """The query if the model's reply is a 'SEARCH: ...' request, else None."""
+    match = re.match(r"\s*SEARCH:[ \t]*(.+)", text, re.IGNORECASE)
+    return match.group(1).strip()[:200] if match and match.group(1).strip() else None
+
+
+def search_context(query):
+    """Run a search the model asked for and phrase the results for the second pass."""
+    learner.log_web_search()
+    results = web_searcher.search(query)
+    return (f"You asked to search the web for '{query}'. Results:\n{results}\n\n"
+            f"Answer the user's question now using these results. Do not reply with SEARCH again.")
+
+
+def generate_answer(user_input, extra_context=""):
+    """Get the model's answer; if it asks to search first, search and ask again."""
+    response = llm_interface.generate_response(build_prompt(user_input, extra_context))
+    query = search_request(response)
+    if not query:
+        return response
+    extra = "\n\n".join(part for part in (extra_context, search_context(query)) if part)
+    response = llm_interface.generate_response(build_prompt(user_input, extra))
+    if search_request(response):
+        return f"I searched the web for '{query}' but couldn't find a clear answer."
+    return response
+
+
+def stream_answer(user_input, prompt, extra_context=""):
+    """Stream the model's answer as ('token', text) events.
+
+    If the reply starts with 'SEARCH: <query>', that reply is dropped, a ('search', query)
+    event is sent, and the answer written with the search results is streamed instead.
+    """
+    stream = llm_interface.generate_response_stream(prompt)
+    buffer, passthrough = "", False
+    for token in stream:
+        if passthrough:
+            yield 'token', token
+            continue
+        buffer += token
+        head = buffer.lstrip()
+        if len(head) < len(SEARCH_PREFIX) and SEARCH_PREFIX.startswith(head.upper()):
+            continue                      # too short to tell yet
+        if head.upper().startswith(SEARCH_PREFIX):
+            if "\n" in head.strip():      # the query line is complete
+                break
+            continue
+        passthrough = True
+        yield 'token', buffer
+    stream.close()                        # stop the model if it's still writing
+    if passthrough:
+        return
+    query = search_request(buffer)
+    if not query:
+        if buffer:
+            yield 'token', buffer
+        return
+    yield 'search', query
+    extra = "\n\n".join(part for part in (extra_context, search_context(query)) if part)
+    for token in llm_interface.generate_response_stream(build_prompt(user_input, extra)):
+        yield 'token', token
+
+
+def find_runnable_code(response):
+    """Code the user may run. Upgrade requests are applied, not run, so they don't count."""
+    if "UPGRADE_REQUEST:" in response:
+        return False, None
+    return code_executor.extract_code(response)
 
 
 def record_exchange(user_input, response):
@@ -136,6 +274,12 @@ def record_exchange(user_input, response):
         memory.add_conversation(user_input, response, message_id)
     if LEARNING_ENABLED:
         learner.log_conversation(user_input, response)
+
+
+@app.errorhandler(LLMError)
+def handle_llm_error(e):
+    """The model couldn't answer (Ollama not running, model missing, timeout)."""
+    return jsonify({'error': str(e)}), 503
 
 
 @app.errorhandler(Exception)
@@ -160,11 +304,10 @@ def chat():
     if not user_input:
         return jsonify({'error': 'Empty message'}), 400
 
-    prompt = build_prompt(user_input)
-    response = llm_interface.generate_response(prompt)
+    response = generate_answer(user_input)
     record_exchange(user_input, response)
 
-    has_code, code = code_executor.extract_code(response)
+    has_code, code = find_runnable_code(response)
     return jsonify({'response': response, 'has_code': has_code, 'code': code})
 
 
@@ -180,22 +323,27 @@ def chat_stream():
     def generate():
         """Stream the response tokens, then a final 'done' event"""
         response_text = ""
+        error = None
         try:
-            for token in llm_interface.generate_response_stream(prompt):
-                response_text += token
-                yield f"data: {json.dumps({'token': token})}\n\n"
+            for kind, value in stream_answer(user_input, prompt):
+                if kind == 'search':
+                    yield f"data: {json.dumps({'searching': value})}\n\n"
+                    continue
+                response_text += value
+                yield f"data: {json.dumps({'token': value})}\n\n"
             record_exchange(user_input, response_text)
         except Exception as e:
-            app.logger.exception("Streaming failed")
-            error_token = {'token': f"\n[Error: {e}]"}
-            yield f"data: {json.dumps(error_token)}\n\n"
+            if not isinstance(e, LLMError):
+                app.logger.exception("Streaming failed")
+            error = str(e)
 
-        has_code, code = code_executor.extract_code(response_text)
+        has_code, code = (False, None) if error else find_runnable_code(response_text)
         done = {
             'done': True,
             'has_code': has_code,
             'code': code,
             'has_upgrade': "UPGRADE_REQUEST:" in response_text,
+            'error': error,
         }
         yield f"data: {json.dumps(done)}\n\n"
 
@@ -253,7 +401,7 @@ def get_weather():
 @app.route('/api/history', methods=['GET'])
 def get_history():
     """Get conversation history"""
-    messages = conversation_history.get_all_messages()
+    messages = conversation_history.get_all_messages(limit=request.args.get('limit', type=int))
     for message in messages:
         message['role'] = message['role'].lower()
     return jsonify({'success': True, 'messages': messages})
@@ -268,6 +416,7 @@ def get_stats():
         'message_count': total,
         'conversations': total // 2,
         'files': len(file_handler.list_files()),
+        'code_runs': learner.metrics.get('code_executions', 0),
     })
 
 
@@ -275,6 +424,13 @@ def get_stats():
 def list_conversations():
     """List all saved conversations"""
     return jsonify({'sessions': conversation_manager.get_all_sessions()})
+
+
+@app.route('/api/conversations/new', methods=['POST'])
+def new_conversation():
+    """Start a fresh conversation: earlier messages stop being sent to the model"""
+    conversation_history.start_new_conversation()
+    return jsonify({'success': True})
 
 
 @app.route('/api/conversations', methods=['POST'])
@@ -319,7 +475,7 @@ def upload_document():
     if not filename:
         return jsonify({'error': 'Invalid file name'}), 400
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         file_path = Path(temp_dir) / filename
         file.save(str(file_path))
         success, message = knowledge_base.add_document(file_path)
@@ -451,7 +607,7 @@ def upload_folder():
 
     folder_name = secure_filename(request.form.get('folder_name', '')) or 'uploaded_folder'
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         zip_path = Path(temp_dir) / "upload.zip"
         zip_file.save(str(zip_path))
         extract_path = Path(temp_dir) / folder_name
@@ -537,19 +693,24 @@ def chat_with_folder():
     if not folder_name:
         return jsonify({'error': 'No folder specified'}), 400
 
+    folder_text, error = folder_manager.get_folder_context(folder_name)
+    if error:
+        return jsonify({'error': error}), 404
+
     folder_context = f"""📁 FOLDER ACCESS:
 The user has shared a folder with you: {folder_name}
 
-{folder_manager.get_folder_summary(folder_name)}
+{folder_text}
 
 Answer based on the folder contents: discuss them, suggest improvements,
 or write code that works with these files."""
 
-    response = llm_interface.generate_response(build_prompt(message, folder_context))
+    response = generate_answer(message, folder_context)
     record_exchange(message, response)
     learner.log_feature_usage('folder_chat')
 
-    return jsonify({'response': response, 'folder': folder_name})
+    has_code, code = find_runnable_code(response)
+    return jsonify({'response': response, 'folder': folder_name, 'has_code': has_code, 'code': code})
 
 
 # ==================== SELF-IMPROVEMENT ENDPOINTS ====================
@@ -587,30 +748,62 @@ def get_improvements():
     })
 
 
+def pick_improvement_target(analyses):
+    """The upgradeable file with the most issues that is small enough to show the model in full."""
+    candidates = []
+    for name in UPGRADEABLE_FILES:
+        analysis = analyses.get(name)
+        if not isinstance(analysis, dict) or 'issues' not in analysis:
+            continue
+        path = upgrade_manager.project_dir / name
+        size = path.stat().st_size if path.exists() else 0
+        if 0 < size <= MAX_CODE_CONTEXT_CHARS and analysis['issues']:
+            candidates.append((len(analysis['issues']), name))
+    return max(candidates)[1] if candidates else None
+
+
 @app.route('/api/self/improvement-prompt', methods=['GET'])
 def get_improvement_prompt():
-    """Get a prompt to trigger AI self-improvement"""
+    """Get a prompt to trigger AI self-improvement.
+
+    It names ONE file, so the chat adds that file's current code (see get_code_context)
+    and the model edits the real code instead of rewriting it from memory.
+    """
     analyses = analyzer.analyze_all_files()
     proposals = improver.analyze_and_propose(analyses)
-    prompt = f"""I want you to improve yourself. Here's my analysis:
+    target = pick_improvement_target(analyses)
 
-Code Quality Score: {analyzer.get_code_quality_score(analyses)}/100
+    past = upgrade_manager.get_upgrade_history()[-5:]
+    past_text = "\n".join(f"- {Path(u['file']).name}: {u.get('description') or 'no description'}"
+                          for u in past) or "- none yet"
+
+    score = analyzer.get_code_quality_score(analyses)
+    if target:
+        issues = "\n".join(f"- {issue}" for issue in analyses[target]['issues'][:10])
+        # The target is named first so the chat attaches ITS code (see get_code_context)
+        prompt = f"""Improve {target}. Its current code is shown above. Issues found in it:
+{issues}
+
+Overall code quality score: {score}/100
+
+Upgrades already applied:
+{past_text}
+
+Propose ONE UPGRADE_REQUEST for {target} that fixes these issues. Start from its current
+code, keep every existing class, function and setting, and don't repeat earlier upgrades."""
+    else:
+        prompt = f"""Overall code quality score: {score}/100. No upgradeable file has issues right now.
 
 {improver.format_improvement_suggestions(proposals)}
+Upgrades already applied:
+{past_text}
 
-Based on this analysis, what improvements would you suggest?
-Look at:
-1. Code quality issues
-2. Features that are heavily used
-3. User feedback areas
-4. New features to add
-
-Propose ONE specific UPGRADE_REQUEST block for the highest-priority improvement.
-Upgradeable files: {', '.join(UPGRADEABLE_FILES)}"""
+Suggest improvements in words; don't send an UPGRADE_REQUEST."""
 
     return jsonify({
         'success': True,
         'prompt': prompt,
+        'target_file': target,
         'analysis': improver.create_improvement_file(analyses)
     })
 
@@ -624,8 +817,9 @@ def log_feedback():
     except (TypeError, ValueError):
         return jsonify({'error': 'Rating must be a number from 1 to 5'}), 400
 
-    last_message_id = conversation_history.count_messages()
-    learner.log_feedback(last_message_id, rating, str(data.get('feedback', '')))
+    recent = conversation_history.get_all_messages(limit=2)
+    last_answer = next((m['content'] for m in reversed(recent) if m['role'] == 'Assistant'), '')
+    learner.log_feedback(conversation_history.count_messages(), rating, str(data.get('feedback', '')), last_answer)
     return jsonify({'success': True, 'message': 'Feedback logged for improvement'})
 
 

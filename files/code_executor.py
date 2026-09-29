@@ -41,11 +41,16 @@ class CodeExecutor:
             tuple: (success, output)
         """
         try:
+            # Code goes in on stdin: Windows limits command lines to ~32k characters.
+            # -X utf8 lets printed emoji/non-English text work on Windows consoles.
             result = subprocess.run(
-                [sys.executable, "-I", "-c", code],
+                [sys.executable, "-I", "-X", "utf8", "-"],
+                input=code,
                 cwd=self.working_dir,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.timeout
             )
         except subprocess.TimeoutExpired:

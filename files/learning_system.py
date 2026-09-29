@@ -1,4 +1,6 @@
 import json
+import os
+import threading
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -8,11 +10,19 @@ class LearningSystem:
 
     MAX_LOGGED_CONVERSATIONS = 1000
 
-    def __init__(self, data_dir="./backups"):
+    def __init__(self, data_dir="./backups", enabled=True):
+        """
+        Args:
+            data_dir: Folder for the JSON logs
+            enabled (bool): When False nothing is written to disk
+        """
         data_dir = Path(data_dir)
         data_dir.mkdir(parents=True, exist_ok=True)
+        self.enabled = enabled
         self.learning_log = data_dir / "learning_log.json"
         self.performance_metrics = data_dir / "performance_metrics.json"
+        # The web server handles requests in parallel threads
+        self._lock = threading.RLock()
         self.load_logs()
 
     @staticmethod
@@ -47,76 +57,112 @@ class LearningSystem:
         }
         self.metrics.update(self._read_json(self.performance_metrics))
 
+    @staticmethod
+    def _write_json(path, data):
+        """Write JSON to a temp file first so a crash never leaves a half-written log"""
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+
     def save_logs(self):
         """Save learning data"""
-        with open(self.learning_log, 'w', encoding='utf-8') as f:
-            # Convert defaultdict to regular dict for JSON serialization
-            data = self.learning_data.copy()
-            data['feature_usage'] = dict(data['feature_usage'])
-            json.dump(data, f, indent=2)
-
-        with open(self.performance_metrics, 'w', encoding='utf-8') as f:
-            json.dump(self.metrics, f, indent=2)
+        if not self.enabled:
+            return
+        with self._lock:
+            data = dict(self.learning_data)
+            data['feature_usage'] = dict(data['feature_usage'])  # defaultdict -> dict for JSON
+            try:
+                self._write_json(self.learning_log, data)
+                self._write_json(self.performance_metrics, self.metrics)
+            except OSError as e:
+                # e.g. antivirus briefly locking the file on Windows; the next save catches up
+                print(f"Could not save learning logs: {e}")
 
     def log_conversation(self, user_input, ai_response, metadata=None):
         """Log a conversation for learning"""
-        entry = {
-            'timestamp': datetime.now().isoformat(),
-            'user_input': user_input,
-            'ai_response': ai_response[:500],  # First 500 chars
-            'response_length': len(ai_response),
-            'metadata': metadata or {}
-        }
+        with self._lock:
+            entry = {
+                'timestamp': datetime.now().isoformat(),
+                'user_input': user_input,
+                'ai_response': ai_response[:500],  # First 500 chars
+                'response_length': len(ai_response),
+                'metadata': metadata or {}
+            }
 
-        self.learning_data['conversations'].append(entry)
-        del self.learning_data['conversations'][:-self.MAX_LOGGED_CONVERSATIONS]
-        self.metrics['total_conversations'] += 1
-        self.save_logs()
+            self.learning_data['conversations'].append(entry)
+            del self.learning_data['conversations'][:-self.MAX_LOGGED_CONVERSATIONS]
+            self.metrics['total_conversations'] += 1
+            self.save_logs()
 
     def log_feature_usage(self, feature_name):
         """Track which features are used most"""
-        self.learning_data['feature_usage'][feature_name] += 1
-        self.save_logs()
+        with self._lock:
+            self.learning_data['feature_usage'][feature_name] += 1
+            self.save_logs()
 
     def log_code_execution(self, success):
         """Track code execution success rate"""
-        total = self.metrics.get('code_executions', 0) + 1
-        successes = self.metrics.get('code_execution_successes', 0)
+        with self._lock:
+            total = self.metrics.get('code_executions', 0) + 1
+            successes = self.metrics.get('code_execution_successes', 0)
 
-        if success:
-            successes += 1
+            if success:
+                successes += 1
 
-        self.metrics['code_executions'] = total
-        self.metrics['code_execution_successes'] = successes
-        self.metrics['code_execution_success_rate'] = round((successes / total * 100), 2)
-        self.save_logs()
+            self.metrics['code_executions'] = total
+            self.metrics['code_execution_successes'] = successes
+            self.metrics['code_execution_success_rate'] = round((successes / total * 100), 2)
+            self.log_feature_usage('code_execution')
 
     def log_file_operation(self, operation_type, success):
         """Track file operations"""
-        self.metrics['file_operations_count'] += 1
-        self.log_feature_usage(f'file_{operation_type}')
+        with self._lock:
+            self.metrics['file_operations_count'] += 1
+            self.log_feature_usage(f'file_{operation_type}')
 
     def log_knowledge_base_query(self):
         """Track knowledge base usage"""
-        self.metrics['knowledge_base_queries'] += 1
-        self.log_feature_usage('knowledge_base')
+        with self._lock:
+            self.metrics['knowledge_base_queries'] += 1
+            self.log_feature_usage('knowledge_base')
 
     def log_web_search(self):
         """Track web search usage"""
-        self.metrics['web_searches'] += 1
-        self.log_feature_usage('web_search')
+        with self._lock:
+            self.metrics['web_searches'] += 1
+            self.log_feature_usage('web_search')
 
-    def log_feedback(self, conversation_id, rating, feedback_text):
+    def log_feedback(self, conversation_id, rating, feedback_text, response_excerpt=""):
         """Log user feedback for improvement"""
-        entry = {
-            'timestamp': datetime.now().isoformat(),
-            'conversation_id': conversation_id,
-            'rating': rating,  # 1-5 stars
-            'feedback': feedback_text
-        }
+        with self._lock:
+            entry = {
+                'timestamp': datetime.now().isoformat(),
+                'conversation_id': conversation_id,
+                'rating': rating,  # 1-5 stars
+                'feedback': feedback_text,
+                'response_excerpt': " ".join(response_excerpt.split())[:150]  # what the rating was about
+            }
 
-        self.learning_data['user_feedback'].append(entry)
-        self.save_logs()
+            self.learning_data['user_feedback'].append(entry)
+            self.save_logs()
+
+    def get_feedback_guidance(self, limit=5):
+        """Recent written feedback, phrased for the model, so ratings change future answers.
+
+        Returns:
+            str: Text for the prompt, or "" when there is no written feedback yet
+        """
+        with self._lock:
+            written = [f for f in self.learning_data['user_feedback'] if str(f.get('feedback', '')).strip()]
+            recent = written[-limit:]
+        if not recent:
+            return ""
+        lines = ["Feedback the user gave on your earlier answers (follow it):"]
+        for f in recent:
+            about = f" on \"{f['response_excerpt']}\"" if f.get('response_excerpt') else ""
+            lines.append(f"- {f['rating']}/5{about}: {f['feedback'].strip()}")
+        return "\n".join(lines)
 
     def get_most_used_features(self, top_k=5):
         """Get most frequently used features"""

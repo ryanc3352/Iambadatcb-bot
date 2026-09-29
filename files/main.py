@@ -1,8 +1,8 @@
 from config import (
     DATABASE_PATH, OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS,
-    CONTEXT_MESSAGES, SYSTEM_PROMPT,
+    MODEL_CONTEXT_TOKENS, MODEL_TIMEOUT, CONTEXT_MESSAGES, SYSTEM_PROMPT,
 )
-from llm_interface import LLMInterface
+from llm_interface import LLMInterface, LLMError
 from conversation_history import ConversationHistory
 
 class PersonalAI:
@@ -13,7 +13,8 @@ class PersonalAI:
         print("Initializing Personal AI...\n")
 
         # Initialize the LLM interface (connects to Ollama)
-        self.llm = LLMInterface(MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, OLLAMA_URL)
+        self.llm = LLMInterface(MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, OLLAMA_URL,
+                                context_tokens=MODEL_CONTEXT_TOKENS, timeout=MODEL_TIMEOUT)
         if not self.llm.test_connection():
             raise ConnectionError(f"Ollama is not reachable at {OLLAMA_URL}")
 
@@ -74,13 +75,11 @@ Assistant:"""
         # Build the prompt first so the new message isn't repeated in the context
         prompt = self.build_prompt(user_input)
 
-        # Store the user's message
-        self.history.add_message("User", user_input)
-
-        # Get response from the model
+        # Get response from the model (raises LLMError if Ollama can't answer)
         response = self.llm.generate_response(prompt)
 
-        # Store the AI's response
+        # Store the exchange only once there is a real answer
+        self.history.add_message("User", user_input)
         self.history.add_message("Assistant", response)
 
         return response
@@ -119,7 +118,9 @@ Assistant:"""
                 print(response)
                 print()
 
-            except KeyboardInterrupt:
+            except LLMError as e:
+                print(f"\n✗ {e}\n")
+            except (KeyboardInterrupt, EOFError):
                 print("\n\nInterrupted. Goodbye!")
                 break
             except Exception as e:

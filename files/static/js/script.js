@@ -29,6 +29,18 @@ function renderText(text) {
         .replace(/\n/g, '<br>');
 }
 
+// Split a message into text and ```lang code blocks and add them to contentDiv
+function appendTextAndCode(contentDiv, text) {
+    for (const part of text.split(/(```[\s\S]*?```)/)) {
+        const fence = part.match(/^```([\w+-]*)[ \t]*\n?([\s\S]*?)\n?```$/);
+        if (fence) {
+            contentDiv.appendChild(createCodeBlock(fence[2], fence[1]));
+        } else if (part.trim()) {
+            contentDiv.appendChild(textDivFor(part));
+        }
+    }
+}
+
 function textDivFor(text) {
     const textDiv = document.createElement('div');
     textDiv.className = 'message-text';
@@ -60,6 +72,7 @@ function handleKeyPress(event) {
 }
 
 function sendMessage(customMessage = null) {
+    if (sendBtn.disabled) return;  // a reply is still coming
     const message = customMessage || messageInput.value.trim();
     
     if (!message) {
@@ -109,6 +122,9 @@ function sendMessageWithFolder(message) {
                 addMessage('assistant', '❌ Error: ' + data.error);
             } else {
                 addMessage('assistant', data.response);
+                if (data.has_code && data.code) {
+                    showCodeRequest(data.code);
+                }
                 lastResponseRole = 'assistant';
                 feedbackBtn.style.display = 'inline-block';
             }
@@ -140,7 +156,9 @@ function streamMessage(message) {
         .then(response => {
             if (!response.ok) {
                 console.error('❌ Response not ok:', response.status);
-                throw new Error('Network error');
+                return response.json()
+                    .catch(() => ({}))
+                    .then(data => { throw new Error(data.error || `Server error ${response.status}`); });
             }
             
             console.log('📡 Got stream response');
@@ -152,6 +170,7 @@ function streamMessage(message) {
             div.appendChild(contentDiv);
             chatArea.appendChild(div);
             currentStreamingDiv = contentDiv;
+            contentDiv.style.whiteSpace = 'pre-wrap';  // raw text while streaming
             
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -182,17 +201,28 @@ function streamMessage(message) {
                         try {
                             const data = JSON.parse(line.substring(6));
                             
+                            if (data.searching) {
+                                // shown above the answer; formatMessage() doesn't clear it
+                                const note = document.createElement('div');
+                                note.className = 'search-note';
+                                note.style.cssText = 'font-size: 12px; opacity: 0.75; margin-bottom: 6px;';
+                                note.textContent = `🔍 Searched the web for: ${data.searching}`;
+                                div.insertBefore(note, currentStreamingDiv);
+                            }
+
                             if (data.token) {
                                 fullText += data.token;
-                                if (!data.token.includes('```')) {
-                                    currentStreamingDiv.innerHTML += escapeHtml(data.token).replace(/\n/g, '<br>');
-                                    chatArea.scrollTop = chatArea.scrollHeight;
-                                }
+                                // Text nodes, not innerHTML: no escaping needed and no re-parsing per token
+                                currentStreamingDiv.insertAdjacentText('beforeend', data.token);
+                                chatArea.scrollTop = chatArea.scrollHeight;
                             }
                             
                             if (data.done) {
                                 formatted = true;
                                 formatMessage(currentStreamingDiv, fullText);
+                                if (data.error) {
+                                    addMessage('assistant', '❌ ' + data.error);
+                                }
                                 if (data.has_code && data.code) {
                                     showCodeRequest(data.code);
                                 }
@@ -228,18 +258,7 @@ function addMessage(role, content) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'content';
     
-    // Split content into text and code blocks
-    const parts = content.split(/(```[\s\S]*?```)/);
-    
-    for (let part of parts) {
-        if (part.match(/```/)) {
-            const codeContent = part.replace(/```python\n?|```\n?/g, '').trim();
-            const codeDiv = createCodeBlock(codeContent);
-            contentDiv.appendChild(codeDiv);
-        } else if (part.trim()) {
-            contentDiv.appendChild(textDivFor(part));
-        }
-    }
+    appendTextAndCode(contentDiv, content);
     
     // Show full response button if too long
     if (content.length > 1000) {
@@ -273,6 +292,7 @@ function parseUpgradeRequest(text) {
 
 function formatMessage(contentDiv, text) {
     contentDiv.innerHTML = '';
+    contentDiv.style.whiteSpace = '';
     
     // Check for UPGRADE_REQUEST first
     const upgrade = parseUpgradeRequest(text);
@@ -287,36 +307,30 @@ function formatMessage(contentDiv, text) {
     }
 
     // Normal message formatting
-    const parts = text.split(/(```[\s\S]*?```)/);
-    
-    for (let part of parts) {
-        if (part.match(/```/)) {
-            const codeContent = part.replace(/```python\n?|```\n?/g, '').trim();
-            const codeDiv = createCodeBlock(codeContent);
-            contentDiv.appendChild(codeDiv);
-        } else if (part.trim()) {
-            contentDiv.appendChild(textDivFor(part));
-        }
-    }
+    appendTextAndCode(contentDiv, text);
 }
 
-function createCodeBlock(code) {
+function createCodeBlock(code, language = '') {
     const blockDiv = document.createElement('div');
     blockDiv.className = 'code-block';
     
-    // Detect language
-    let language = 'python';
-    if (code.includes('import requests') || code.includes('def ')) language = 'python';
-    if (code.includes('function ') || code.includes('const ')) language = 'javascript';
-    if (code.includes('SELECT') || code.includes('INSERT')) language = 'sql';
+    // Use the fence's language, or guess
+    if (!language) {
+        language = 'python';
+        if (code.includes('function ') || code.includes('const ')) language = 'javascript';
+        if (code.includes('SELECT') || code.includes('INSERT')) language = 'sql';
+    }
     
     // Header
     const header = document.createElement('div');
     header.className = 'code-block-header';
-    header.innerHTML = `
-        <span>${language.toUpperCase()}</span>
-        <button class="code-copy-btn" onclick="copyCode(this)">📋 Copy</button>
-    `;
+    const label = document.createElement('span');
+    label.textContent = language.toUpperCase();
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'code-copy-btn';
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.onclick = () => copyCode(copyBtn);
+    header.append(label, copyBtn);
     blockDiv.appendChild(header);
     
     // Code content
@@ -396,6 +410,7 @@ function executeCode(button, code, blockDiv) {
     .then(data => {
         showCodeResult(blockDiv, data.success, data.output || data.error || '');
         button.style.display = 'none';
+        updateStats();
     })
     .catch(err => {
         showCodeResult(blockDiv, false, err.message);
@@ -422,7 +437,7 @@ function uploadDocument(event) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            addMessage('assistant', `✅ Document uploaded: ${file.name}`);
+            addMessage('assistant', data.message);
         } else {
             addMessage('assistant', `❌ Error: ${data.message || data.error}`);
         }
@@ -447,7 +462,8 @@ function loadDocumentsList() {
             message = 'No documents uploaded yet.';
         }
         addMessage('assistant', message);
-    });
+    })
+    .catch(err => addMessage('assistant', '❌ Could not load documents: ' + err.message));
 }
 
 // ==================== FOLDER ACCESS ====================
@@ -460,8 +476,10 @@ async function loadFoldersList() {
         
         console.log('📂 Folders response:', data);
         
-        if (data.success && data.folders && data.folders.length > 0) {
-            const foldersList = document.getElementById('folders-list');
+        const foldersList = document.getElementById('folders-list');
+        if (data.success && data.folders && data.folders.length === 0) {
+            foldersList.innerHTML = '<p style="font-size: 12px; color: var(--text-secondary);">No folders uploaded</p>';
+        } else if (data.success && data.folders) {
             foldersList.innerHTML = '';
             
             for (let folder of data.folders) {
@@ -520,6 +538,26 @@ function selectFolderMode() {
     }
 }
 
+function uploadFolder(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('folder', file);
+    formData.append('folder_name', file.name.replace(/\.zip$/i, ''));
+
+    addMessage('user', `📤 Uploading folder: ${file.name}`);
+
+    fetch('/api/folders/upload', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        addMessage('assistant', data.success ? data.message : `❌ Error: ${data.error || data.message}`);
+        loadFoldersList();
+    })
+    .catch(err => addMessage('assistant', `❌ Upload failed: ${err.message}`))
+    .finally(() => { event.target.value = ''; });
+}
+
 async function deleteFolder(folderName) {
     if (confirm(`Delete folder "${folderName}"?`)) {
         const response = await fetch(`/api/folders/${encodeURIComponent(folderName)}/delete`, {
@@ -528,6 +566,7 @@ async function deleteFolder(folderName) {
         
         const data = await response.json();
         addMessage('assistant', data.message || data.error);
+        if (selectedFolder === folderName) selectFolderMode();  // stop chatting with a deleted folder
         await loadFoldersList();
     }
 }
@@ -593,7 +632,6 @@ function showImprovements() {
 
 function selfImprove() {
     console.log('🚀 Triggering self-improve...');
-    addMessage('user', 'Please analyze yourself and suggest improvements');
     
     fetch('/api/self/improvement-prompt')
     .then(r => r.json())
@@ -746,6 +784,9 @@ function submitFeedback() {
 // ==================== HISTORY & STATS ====================
 
 function newConversation() {
+    fetch('/api/conversations/new', { method: 'POST' })
+        .then(() => loadConversationHistory())
+        .catch(err => console.warn('⚠️ Could not reset conversation:', err));
     chatArea.innerHTML = `
         <div class="message assistant">
             <div class="content">
@@ -764,13 +805,13 @@ function newConversation() {
 
 function loadConversationHistory() {
     console.log('📜 Loading conversation history...');
-    fetch('/api/history')
+    fetch('/api/history?limit=5')
     .then(r => r.json())
     .then(data => {
         const list = document.getElementById('conversations-list');
         if (data.messages && data.messages.length > 0) {
             list.innerHTML = '';
-            const recent = data.messages.slice(-5);
+            const recent = data.messages;
             recent.forEach((conv, idx) => {
                 const div = document.createElement('div');
                 div.style.cssText = 'padding: 8px; border-left: 3px solid var(--accent-1); margin: 5px 0; cursor: pointer; font-size: 12px;';
@@ -792,6 +833,7 @@ function updateStats() {
         if (data.success) {
             document.getElementById('msg-count').textContent = data.message_count || 0;
             document.getElementById('file-count').textContent = data.files || 0;
+            document.getElementById('code-count').textContent = data.code_runs || 0;
         } else {
             console.warn('Stats error:', data.error);
         }
