@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:  # a newer push replaces a run that is still going
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # Python 3.14 is what python.org offers first now; it's tested but not yet required to pass
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, python: "3.13", experimental: false }
+          - { os: windows-latest, python: "3.12", experimental: false }
+          - { os: windows-latest, python: "3.14", experimental: true }
+          - { os: ubuntu-latest, python: "3.13", experimental: false }
+    defaults:
+      run:
+        working-directory: files
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: files/requirements.txt
+
+      - name: Start AI.bat keeps Windows line endings
+        run: python -c "assert b'\r\n' in open('Start AI.bat', 'rb').read(), 'Start AI.bat lost its CRLF line endings'"
+
+      - name: Set up with the one-click launcher (same as double-clicking "Start AI.bat")
+        run: python start.py --setup-only
+
+      - name: Run the tests (Python and the page's JavaScript)
+        run: |
+          if [ -f .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          "$PY" -m pip install pytest
+          "$PY" -m pytest -q -p no:cacheprovider
