@@ -1,7 +1,7 @@
 // Start-up: fill the sidebar and restore dark mode. Loaded last.
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadConversationHistory();
+    restoreCurrentChat();
     updateStats();
     loadFoldersList();
     loadFilesList();

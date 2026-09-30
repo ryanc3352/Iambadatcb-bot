@@ -8,7 +8,7 @@ from config import ENABLE_CODE_EXECUTION
 from llm_interface import LLMError
 from prompts import build_prompt
 from routes_common import json_body
-from services import code_executor, conversation_history, file_handler, folder_manager, learner, log
+from services import code_executor, conversation_history, file_handler, folder_manager, learner, log, memory
 
 bp = Blueprint('chat', __name__)
 
@@ -153,6 +153,58 @@ def new_conversation():
     """Start a fresh conversation: earlier messages stop being sent to the model"""
     conversation_history.start_new_conversation()
     return jsonify({'success': True})
+
+
+@bp.route('/api/conversations', methods=['GET'])
+def list_conversations():
+    """The past chats, most recently used first, and which one is open"""
+    return jsonify({'success': True, 'current': conversation_history.current_conversation_id(),
+                    'conversations': conversation_history.list_conversations()})
+
+
+def chat_not_found():
+    return jsonify({'success': False, 'error': 'That chat no longer exists'}), 404
+
+
+@bp.route('/api/conversations/<int:chat_id>', methods=['GET'])
+def get_conversation(chat_id):
+    """A chat's messages"""
+    chat = conversation_history.get_conversation(chat_id)
+    if chat is None:
+        return chat_not_found()
+    for message in chat['messages']:
+        message['role'] = message['role'].lower()
+    return jsonify({'success': True, **chat})
+
+
+@bp.route('/api/conversations/<int:chat_id>/open', methods=['POST'])
+def open_conversation(chat_id):
+    """Carry on an earlier chat: it becomes the one new messages go to"""
+    if not conversation_history.open_conversation(chat_id):
+        return chat_not_found()
+    return get_conversation(chat_id)
+
+
+@bp.route('/api/conversations/<int:chat_id>/rename', methods=['POST'])
+def rename_conversation(chat_id):
+    """Rename a chat (an empty name goes back to its first question)"""
+    title = json_body().get('title')
+    if not isinstance(title, str):
+        return jsonify({'success': False, 'error': 'Give the chat a name'}), 400
+    if not conversation_history.rename_conversation(chat_id, title):
+        return chat_not_found()
+    return jsonify({'success': True})
+
+
+@bp.route('/api/conversations/<int:chat_id>', methods=['DELETE'])
+def delete_conversation(chat_id):
+    """Delete a chat; the AI's long-term memory forgets it too"""
+    deleted = conversation_history.delete_conversation(chat_id)
+    if deleted is None:
+        return chat_not_found()
+    memory.forget(deleted)
+    log.info("Deleted chat %s (%d messages)", chat_id, len(deleted))
+    return jsonify({'success': True, 'current': conversation_history.current_conversation_id()})
 
 
 @bp.route('/api/feedback', methods=['POST'])

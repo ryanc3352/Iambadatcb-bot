@@ -133,3 +133,12 @@ def test_kb_custom_name_and_chunking(kb, tmp_path):
     assert "'Real Name.md'" in kb.add_document(doc, doc_name="Real Name.md")[1]
     assert kb._chunk_text("abcdefghij", chunk_size=4, overlap=1) == ["abcd", "defg", "ghij"]
     assert kb._chunk_text("abc", chunk_size=4, overlap=1) == ["abc"]
+
+
+def test_memory_forget(tmp_path):
+    mem = Memory(tmp_path / "chroma")
+    mem.add_conversation("What pizza do I like?", "You like mushroom pizza.", 1)
+    mem.add_conversation("How do Python lists work?", "Lists are ordered and mutable.", 2)
+    mem.forget([1, 99])  # ids it never had are ignored
+    mem.forget([])
+    assert mem.collection.get()["ids"] == ["2"]

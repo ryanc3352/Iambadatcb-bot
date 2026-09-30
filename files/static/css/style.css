@@ -549,7 +549,13 @@ button {
 .btn-feedback.active { background: var(--accent-1); color: white; }
 
 /* Sidebar lists */
-.history-item { padding: 8px; border-left: 3px solid var(--accent-1); margin: 5px 0; font-size: 12px; }
+.chat-item { display: flex; align-items: center; gap: 2px; padding: 6px 4px 6px 8px; margin: 4px 0;
+             border-left: 3px solid transparent; border-radius: 3px; cursor: pointer; }
+.chat-item:hover { background: var(--bg-secondary); }
+.chat-item.active { border-left-color: var(--accent-1); background: var(--bg-secondary); font-weight: bold; }
+.chat-text { flex: 1; min-width: 0; }
+.chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-text small { color: var(--text-secondary); font-weight: normal; }
 .folder-item { padding: 8px; border: 1px solid var(--border-color); margin: 5px 0; border-radius: 5px;
                cursor: pointer; background: var(--bg-secondary); }
 .folder-delete { float: right; background: var(--error); color: white; border: none; padding: 2px 6px;

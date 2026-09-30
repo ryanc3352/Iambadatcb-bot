@@ -86,6 +86,48 @@ def test_context_and_new_conversation(client, fake_ollama):
     assert "Recent conversation" not in fake_ollama.last_prompt
 
 
+def test_past_chats(client, fake_ollama, monkeypatch):
+    forgotten = []
+    monkeypatch.setattr(routes_chat.memory, "forget", forgotten.extend)
+    post(client, "/api/conversations/new")
+    post(client, "/api/chat", {"message": "my dog is called Rex"})
+    first = client.get("/api/conversations").get_json()["current"]
+    post(client, "/api/conversations/new")
+    post(client, "/api/chat", {"message": "<b>second</b> chat"})
+
+    data = client.get("/api/conversations").get_json()
+    second = data["current"]
+    assert [c["title"] for c in data["conversations"][:2]] == ["<b>second</b> chat", "my dog is called Rex"]
+    chat = client.get(f"/api/conversations/{first}").get_json()
+    assert [(m["role"], m["content"]) for m in chat["messages"]] == [
+        ("user", "my dog is called Rex"), ("assistant", "Hello from the fake model!")]
+
+    # Reopen the first chat and carry on: its messages are the context again
+    opened = post(client, f"/api/conversations/{first}/open").get_json()
+    assert opened["success"] and len(opened["messages"]) == 2
+    post(client, "/api/chat", {"message": "what is my dog called?"})
+    assert "User: my dog is called Rex" in fake_ollama.last_prompt
+    assert "second" not in fake_ollama.last_prompt
+
+    assert post(client, f"/api/conversations/{first}/rename", {"title": "Dogs"}).get_json() == {"success": True}
+    assert client.get("/api/conversations").get_json()["conversations"][0]["title"] == "Dogs"
+    assert post(client, f"/api/conversations/{first}/rename", {}).status_code == 400
+
+    # Deleting forgets the chat's messages in long-term memory too
+    deleted = client.delete(f"/api/conversations/{second}").get_json()
+    assert deleted == {"success": True, "current": first}
+    assert len(forgotten) == 2
+    deleted = client.delete(f"/api/conversations/{first}").get_json()
+    assert deleted["current"] not in (first, second)
+    ids = [c["id"] for c in client.get("/api/conversations").get_json()["conversations"]]
+    assert first not in ids and second not in ids
+
+    for response in (client.get(f"/api/conversations/{first}"), post(client, f"/api/conversations/{first}/open"),
+                     post(client, f"/api/conversations/{first}/rename", {"title": "x"}),
+                     client.delete(f"/api/conversations/{first}")):
+        assert response.status_code == 404 and response.get_json()["success"] is False
+
+
 def test_chat_validation(client):
     assert post(client, "/api/chat", {"message": "   "}).status_code == 400
     assert client.post("/api/chat", data="hello", content_type="text/plain").status_code == 400

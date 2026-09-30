@@ -24,6 +24,7 @@ function sendMessage(customMessage = null) {
         sendBtn.disabled = false;
         messageInput.focus();
         updateStats();
+        loadChats();
     });
 }
 

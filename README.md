@@ -38,6 +38,7 @@ To stop it, close the black window.
 | **Chat** | Type and press Enter. Answers stream in as they are written; scroll up to read while it writes. |
 | **Change model** | **🧠 Model** (top left). Pick a downloaded model or a suggested one: models you don't have are downloaded (with progress), and the previous model is unloaded from memory. Your choice is remembered. |
 | **Memory** | It remembers earlier chats and brings up relevant ones later. **New Conversation** starts a fresh chat (old ones stay in long-term memory). |
+| **Past chats** | **💬 Past Chats** lists your chats, newest first. Click one to read it again and carry on where you left off. ✏️ renames a chat, 🗑️ deletes it (the AI forgets it too). The chat you were in is shown again when you reopen the app. |
 | **Your documents** | **Upload Documents** (PDF, Word, text, Markdown, code). Relevant parts are used in answers; **View Docs** lists them. |
 | **Project folders** | **📂 Add Folder** and pick a folder (or **🗜️ Add Folder (.zip)**). Click the folder to chat about its files. |
 | **Create files** | "Make me a shopping list file", "save this as notes.md". A **💾 Save** card appears where you can change the name and text, then click Save. Saved files appear under **📄 My Files** (download or delete) and in the `files/ai_files` folder. Name a file ("add eggs to shopping.txt") and the AI sees its content to update it. |

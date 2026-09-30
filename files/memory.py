@@ -76,6 +76,15 @@ class Memory:
         except Exception as e:
             print(f"Error adding to memory: {e}")
 
+    def forget(self, message_ids):
+        """Remove conversations (by message ID) from vector memory, e.g. when a chat is deleted."""
+        if not message_ids:
+            return
+        try:
+            self.collection.delete(ids=[str(i) for i in message_ids])
+        except Exception as e:
+            print(f"Error removing from memory: {e}")
+
     def get_context_from_search(self, query: str, top_k: int = 3, min_similarity=MIN_RELEVANCE) -> str:
         """Search memory for earlier conversations about the same thing.
 

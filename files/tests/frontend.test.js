@@ -61,3 +61,9 @@ test('every button in the page calls a function that exists', () => {
     assert.ok(called.length > 20);
     assert.deepStrictEqual(called.filter(name => name !== 'document' && typeof context[name] !== 'function'), []);
 });
+
+test('fileType labels saved files by extension', () => {
+    assert.strictEqual(context.fileType('shopping.TXT '), 'txt');
+    assert.strictEqual(context.fileType('notes/todo.md'), 'md');
+    assert.strictEqual(context.fileType('Makefile'), 'text');
+});
