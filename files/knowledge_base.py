@@ -1,6 +1,13 @@
+import re
 from pathlib import Path
 
-from memory import MIN_RELEVANCE, get_chroma_client, relevant_documents
+from memory import MIN_RELEVANCE, get_chroma_client, relevant_documents, similarity
+
+CHUNK_SIZE, CHUNK_OVERLAP = 500, 100
+
+# Questions about the documents themselves: "what's in my knowledge base?", "quiz me on the PDF I uploaded"
+DOCUMENT_WORDS = re.compile(r"\b(?:documents?|docs?|knowledge ?base|uploaded|uploads?|pdfs?|word files?)\b",
+                            re.IGNORECASE)
 
 
 class KnowledgeBase:
@@ -40,7 +47,7 @@ class KnowledgeBase:
         if not text.strip():
             return False, "Could not extract text"
 
-        chunks = self._chunk_text(text, chunk_size=500, overlap=100)
+        chunks = self._chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
         try:
             self.collection.delete(where={"source": doc_name})
             self.collection.add(
@@ -107,9 +114,64 @@ class KnowledgeBase:
         except Exception as e:
             return False, f"Error deleting: {e}"
 
-    def get_context_from_documents(self, query, top_k=3, min_similarity=MIN_RELEVANCE):
-        """Relevant document text for the prompt, or "" if no document is about the question."""
-        results = self.search(query, top_k, min_similarity)
-        if not results:
+    def document_start(self, doc_name, max_chars=1500):
+        """The first part of a document's text."""
+        try:
+            chunks = self.collection.get(ids=[f"{doc_name}_{i}" for i in range(4)])
+        except Exception:
             return ""
-        return "📚 Document Context:\n" + "\n".join(f"- {r}" for r in results)
+        by_id = dict(zip(chunks['ids'], chunks['documents']))
+        text = ""
+        for i in range(4):
+            chunk = by_id.get(f"{doc_name}_{i}")
+            if chunk is None:
+                break
+            text += chunk if i == 0 else chunk[CHUNK_OVERLAP:]  # chunks overlap
+        return text[:max_chars] + (" [...]" if len(text) > max_chars else "")
+
+    def named_documents(self, query, names):
+        """Documents the question names ("summarize recipes.pdf", "what's in my recipes doc")."""
+        text = query.lower()
+        return [name for name in names
+                if name.lower() in text or (len(Path(name).stem) >= 4 and Path(name).stem.lower() in text)]
+
+    def get_context_from_documents(self, query, top_k=3, min_similarity=MIN_RELEVANCE):
+        """Document text for the prompt, or "" if no document is about the question.
+
+        Passages about the question are found by meaning. A question about the documents
+        themselves ("what's in my knowledge base?", "quiz me on my PDF") doesn't look like any
+        passage, so then the list of documents and the start of the named (or first) ones are added.
+        """
+        names = self.list_documents()
+        if not names:
+            return ""
+        parts = []
+        named = self.named_documents(query, names)
+        if named or DOCUMENT_WORDS.search(query):
+            parts.append("Documents in the user's knowledge base (the complete list): " + ", ".join(names))
+            for name in (named or names)[:3]:
+                start = self.document_start(name)
+                if start:
+                    parts.append(f"Start of {name}:\n{start}")
+        passages = self.search_with_sources(query, top_k, min_similarity)
+        if passages:
+            parts.append("Passages about the question:\n" + "\n".join(f"- [{source}] {text}"
+                                                                      for source, text in passages))
+        return "📚 Document Context:\n" + "\n\n".join(parts) if parts else ""
+
+    def search_with_sources(self, query, top_k=3, min_similarity=MIN_RELEVANCE):
+        """[(document name, passage)] for the passages at least min_similarity similar to the query."""
+        try:
+            count = self.collection.count()
+            if not count:
+                return []
+            results = self.collection.query(query_texts=[query], n_results=min(top_k, count),
+                                            include=["documents", "metadatas", "distances"])
+        except Exception as e:
+            print(f"Knowledge base search error: {e}")
+            return []
+        space = (self.collection.metadata or {}).get("hnsw:space", "l2")
+        return [(meta.get('source', '?'), doc)
+                for doc, meta, distance in zip(results['documents'][0], results['metadatas'][0],
+                                               results['distances'][0])
+                if similarity(distance, space) >= min_similarity]

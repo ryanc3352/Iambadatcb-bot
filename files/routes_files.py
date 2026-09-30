@@ -6,8 +6,9 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
+from github_reader import GitHubError
 from routes_common import json_body
-from services import file_handler, folder_manager, knowledge_base, learner, log
+from services import file_handler, folder_manager, github_reader, knowledge_base, learner, log
 
 bp = Blueprint('files', __name__)
 
@@ -118,10 +119,31 @@ def upload_folder():
         return jsonify({'error': 'Please upload a ZIP file'}), 400
 
     folder_name = secure_filename(request.form.get('folder_name', '')) or 'uploaded_folder'
+    return add_zip_folder(zip_file.save, folder_name)
 
+
+@bp.route('/api/folders/github', methods=['POST'])
+def add_github_folder():
+    """🐙 Add from GitHub: download a repository and add it as a project folder"""
+    links = github_reader.links(str(json_body().get('url', '')))
+    if not links:
+        return jsonify({'error': 'Paste a link like https://github.com/owner/repository'}), 400
+    owner, repo = links[0][:2]
+    try:
+        data = github_reader.download_zip(owner, repo)
+    except GitHubError as e:
+        return jsonify({'success': False, 'error': f"Couldn't download {owner}/{repo}: {e}"}), 400
+    learner.log_feature_usage('github_folder')
+    return add_zip_folder(lambda path: Path(path).write_bytes(data), secure_filename(repo) or 'github_repo',
+                          unwrap=True)
+
+
+def add_zip_folder(save_zip, folder_name, unwrap=False):
+    """Extract a ZIP (written by save_zip(path)) and add it as a project folder.
+    unwrap: the ZIP holds one folder (like GitHub's "owner-repo-1a2b3c/"): add what's inside it."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         zip_path = Path(temp_dir) / "upload.zip"
-        zip_file.save(str(zip_path))
+        save_zip(str(zip_path))
         extract_path = Path(temp_dir) / folder_name
 
         try:
@@ -136,10 +158,14 @@ def upload_folder():
         except zipfile.BadZipFile:
             return jsonify({'error': 'Not a valid ZIP file'}), 400
 
-        success, message = folder_manager.add_folder(extract_path, folder_name)
+        source = extract_path
+        inside = list(extract_path.iterdir()) if extract_path.is_dir() else []
+        if unwrap and len(inside) == 1 and inside[0].is_dir():
+            source = inside[0]
+        success, message = folder_manager.add_folder(source, folder_name)
 
     if success:
-        return jsonify({'success': True, 'message': message})
+        return jsonify({'success': True, 'message': message, 'folder': folder_name})
     return jsonify({'success': False, 'error': message}), 400
 
 

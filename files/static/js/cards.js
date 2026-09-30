@@ -10,14 +10,15 @@ function showCodeResult(card, success, text, successLabel = '✅ Output:') {
 
 // ==================== RUN CODE ====================
 
-function showCodeRequest(code, packages = []) {
+// options.folder: the project folder the code runs in; options.path: a saved .py file to run where it is
+function showCodeRequest(code, packages = [], options = {}) {
     const card = document.createElement('div');
     card.className = 'code-execution-request';
     card.innerHTML = `
         <div class="card-title">
-            <strong>💻 Code Execution Request</strong>
+            <strong class="code-title">💻 Code Execution Request</strong>
             <small>Runs on your computer with your permissions. Read it before executing.
-                Missing packages are installed automatically.</small>
+                Missing packages are installed automatically. <span class="code-where"></span></small>
         </div>
         <div class="code-block"><div class="code-lines"></div></div>
         <div class="code-packages hint" hidden></div>
@@ -31,6 +32,8 @@ function showCodeRequest(code, packages = []) {
         </div>
     `;
     card.querySelector('.code-lines').textContent = code;
+    if (options.path) card.querySelector('.code-title').textContent = `▶ Run ${options.path}`;
+    if (options.folder) card.querySelector('.code-where').textContent = `Runs inside the folder ${options.folder}.`;
     if (packages.length) {
         const note = card.querySelector('.code-packages');
         note.textContent = `📦 Installs first if missing: ${packages.join(', ')}`;
@@ -38,22 +41,37 @@ function showCodeRequest(code, packages = []) {
     }
     card.querySelector('.code-answers').hidden = !/\binput\s*\(/.test(code);
     const runBtn = card.querySelector('.btn-execute');
-    runBtn.onclick = () => executeCode(runBtn, code, packages, card);
+    runBtn.onclick = () => options.path
+        ? executeCode(runBtn, card, '/api/run-file', { path: options.path })
+        : executeCode(runBtn, card, '/api/execute-code', { code, packages, folder: options.folder });
     card.querySelector('.btn-dismiss').onclick = () => card.remove();
     appendToChat(card);
 }
 
-// Runs the code with no time limit, showing its output as it comes; ⏹ Stop ends it
-async function executeCode(button, code, packages, card) {
+// Open a saved .py file in a run card (the ▶ button in My Files)
+async function showFileRunCard(path) {
+    try {
+        const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`);
+        if (!response.ok) throw new Error(`Couldn't open ${path}`);
+        showCodeRequest(await response.text(), [], { path });
+    } catch (err) {
+        addMessage('assistant', `❌ ${err.message}`);
+    }
+}
+
+// Runs code with no time limit, showing its output as it comes; ⏹ Stop ends it
+async function executeCode(button, card, url, body) {
     const stopBtn = card.querySelector('.btn-stop');
-    const input = card.querySelector('.code-input').value;
+    const dismissBtn = card.querySelector('.btn-dismiss');
+    const label = button.textContent;
+    const input = card.querySelector('.code-input')?.value || '';
     card.querySelectorAll('.code-output, .code-error').forEach(el => el.remove());
     const live = document.createElement('div');
     live.className = 'code-output code-live';
     card.appendChild(live);
     button.disabled = true;
     button.textContent = '⏳ Running...';
-    card.querySelector('.btn-dismiss').hidden = true;
+    if (dismissBtn) dismissBtn.hidden = true;
     stopBtn.hidden = false;
     stopBtn.disabled = false;
     let runId = null;
@@ -63,10 +81,10 @@ async function executeCode(button, code, packages, card) {
     };
     let result = null;
     try {
-        const response = await fetch('/api/execute-code', {
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code, packages, input })
+            body: JSON.stringify({ ...body, input })
         });
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
@@ -88,8 +106,8 @@ async function executeCode(button, code, packages, card) {
     showCodeResult(card, result.success, result.output || '');
     stopBtn.hidden = true;
     button.disabled = false;
-    button.textContent = '🔁 Run again';
-    card.querySelector('.btn-dismiss').hidden = false;
+    button.textContent = label.includes('Save') ? label : '🔁 Run again';
+    if (dismissBtn) dismissBtn.hidden = false;
     updateStats();
 }
 
@@ -103,9 +121,14 @@ function showSaveFileRequest(path, content, exists) {
         <label class="save-field">File name <input class="save-path" type="text" spellcheck="false"></label>
         <div class="save-note"></div>
         <textarea class="save-content" spellcheck="false"></textarea>
+        <label class="code-answers" hidden>Typed answers: what the program asks for with input(), one per line
+            <textarea class="save-content code-input" rows="3" spellcheck="false"></textarea>
+        </label>
         <div class="card-buttons">
-            <button class="btn-execute">💾 Save</button>
-            <button class="btn-skip">❌ Skip</button>
+            <button class="btn-execute btn-save">💾 Save</button>
+            <button class="btn-execute btn-save-run" hidden>▶ Save &amp; Run</button>
+            <button class="btn-skip btn-stop" hidden>⏹ Stop</button>
+            <button class="btn-skip btn-dismiss">❌ Skip</button>
         </div>
     `;
     const pathInput = card.querySelector('.save-path');
@@ -119,24 +142,45 @@ function showSaveFileRequest(path, content, exists) {
     };
     pathInput.oninput = showNote;
     showNote();
-    const saveBtn = card.querySelector('.btn-execute');
+    const saveBtn = card.querySelector('.btn-save');
     saveBtn.onclick = () => saveFile(saveBtn, pathInput.value.trim(), contentBox.value, card);
-    card.querySelector('.btn-skip').onclick = () => card.remove();
+    // Python files can be saved and run right away, in their folder (so they find the files next to them)
+    const runBtn = card.querySelector('.btn-save-run');
+    const answers = card.querySelector('.code-answers');
+    const showRun = () => {
+        runBtn.hidden = !/\.py$/i.test(pathInput.value.trim());
+        answers.hidden = runBtn.hidden || !/\binput\s*\(/.test(contentBox.value);
+    };
+    pathInput.addEventListener('input', showRun);
+    contentBox.addEventListener('input', showRun);
+    showRun();
+    runBtn.onclick = async () => {
+        const path = pathInput.value.trim();
+        if (await saveFile(saveBtn, path, contentBox.value, card)) {
+            executeCode(runBtn, card, '/api/run-file', { path });
+        }
+    };
+    card.querySelector('.btn-dismiss').onclick = () => card.remove();
     appendToChat(card);
 }
 
+// Resolves to true when the file was saved
 function saveFile(button, path, content, card) {
     button.disabled = true;
     button.textContent = '⏳ Saving...';
-    api('/api/files/save', { path, content })
+    return api('/api/files/save', { path, content })
     .then(data => {
         showCodeResult(card, !!data.success, data.success ? data.message : (data.error || 'Could not save'), '');
         button.hidden = !!data.success;
-        if (data.success) card.querySelectorAll('input, textarea').forEach(el => { el.disabled = true; });
+        if (data.success) card.querySelectorAll('.save-path, .save-content:not(.code-input)').forEach(el => { el.disabled = true; });
         loadFilesList();
         updateStats();
+        return !!data.success;
     })
-    .catch(err => showCodeResult(card, false, err.message))
+    .catch(err => {
+        showCodeResult(card, false, err.message);
+        return false;
+    })
     .finally(() => {
         button.disabled = false;
         button.textContent = '💾 Save';

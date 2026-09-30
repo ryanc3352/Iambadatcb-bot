@@ -5,7 +5,7 @@ import logging
 from config import (
     BASE_DIR, DATABASE_PATH, VECTOR_DB_PATH, AI_FILES_PATH, BACKUPS_PATH, LOGS_PATH,
     OLLAMA_URL, MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, MODEL_CONTEXT_TOKENS, MODEL_TIMEOUT,
-    CODE_EXECUTION_TIMEOUT, LEARNING_ENABLED, UPGRADEABLE_FILES, USER_SETTINGS_PATH,
+    CODE_EXECUTION_TIMEOUT, LEARNING_ENABLED, UPGRADEABLE_FILES, USER_SETTINGS_PATH, GITHUB_TOKEN,
 )
 from app_logging import setup_logging
 from autonomous_improver import AutonomousImprover
@@ -13,6 +13,7 @@ from code_executor import CodeExecutor
 from conversation_history import ConversationHistory
 from file_handler import FileHandler
 from folder_manager import FolderManager
+from github_reader import GitHubReader
 from knowledge_base import KnowledgeBase
 from learning_system import LearningSystem
 from llm_interface import LLMInterface
@@ -35,6 +36,7 @@ knowledge_base = KnowledgeBase(VECTOR_DB_PATH)
 code_executor = CodeExecutor(working_dir=AI_FILES_PATH, timeout=CODE_EXECUTION_TIMEOUT)
 file_handler = FileHandler(AI_FILES_PATH)
 folder_manager = FolderManager(AI_FILES_PATH)
+github_reader = GitHubReader(GITHUB_TOKEN)
 web_searcher = WebSearcher()
 weather_provider = WeatherProvider()
 upgrade_manager = UpgradeManager(BASE_DIR, BACKUPS_PATH, UPGRADEABLE_FILES)

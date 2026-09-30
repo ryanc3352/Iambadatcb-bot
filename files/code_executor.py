@@ -2,13 +2,16 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import uuid
 from pathlib import Path
 
 from code_parsing import (INLINE_PIP, MISSING_MODULE, PIP_LINE, PIP_NAMES, PYTHON_LANGUAGES, code_blocks,
                           only_pip_lines, packages_in)
+
+# Code from the chat is written to a hidden file with this prefix in the folder it runs in
+RUN_FILE_PREFIX = ".ai_run_"
+
 
 class CodeExecutor:
     """Runs Python code in a separate process, installing missing packages first.
@@ -65,16 +68,18 @@ class CodeExecutor:
                 kept.append(line)
         return "\n".join(kept), packages
 
-    def package_for(self, module):
+    def package_for(self, module, folder=None):
         """The pip package that provides an import name, or None when pip can't help."""
         top = module.split(".")[0]
+        folder = Path(folder or self.working_dir)
         if top in getattr(sys, "stdlib_module_names", ()):
             return None  # part of Python itself (e.g. tkinter left out of the install)
-        if (self.working_dir / f"{top}.py").exists() or (self.working_dir / top).is_dir():
+        if (folder / f"{top}.py").exists() or (folder / top).is_dir():
             return None  # the user's own file, not a package from the internet
         return PIP_NAMES.get(top, top.replace("_", "-"))
 
-    def execute_code(self, code: str, packages=(), stdin_text="", run_id=None, on_output=None) -> tuple:
+    def execute_code(self, code: str, packages=(), stdin_text="", run_id=None, on_output=None,
+                     folder=None, script=None) -> tuple:
         """Install the packages (and any the code turns out to miss), then run the code.
 
         Args:
@@ -82,13 +87,21 @@ class CodeExecutor:
             stdin_text: what the program reads with input(), one answer per line
             run_id: name for stop()
             on_output: called with each line of output while the code runs
+            folder: where the code runs (default: the working folder), e.g. a project folder
+            script: run this saved .py file in its own folder instead of `code`
 
         Returns:
             tuple: (success, output)
         """
         run_id = run_id or uuid.uuid4().hex
         report = on_output or (lambda text: None)
-        code, notebook_packages = self.split_pip_lines(code)
+        if script:
+            script = Path(script)
+            folder = script.parent
+            code, notebook_packages = script.read_text(encoding="utf-8", errors="replace"), []
+        else:
+            code, notebook_packages = self.split_pip_lines(code)
+        folder = Path(folder or self.working_dir)
         notes = []
         try:
             wanted = list(dict.fromkeys([*packages, *notebook_packages]))
@@ -98,9 +111,9 @@ class CodeExecutor:
                     return False, "\n".join(notes + [output])
             tried = set()
             while True:
-                success, output = self._run(code, stdin_text, run_id, report)
+                success, output = self._run(code, stdin_text, run_id, report, folder, script)
                 missing = None if success else MISSING_MODULE.search(output)
-                package = missing and self.package_for(missing.group(1))
+                package = missing and self.package_for(missing.group(1), folder)
                 if not package or package in tried or len(tried) >= 5 or self._was_stopped(run_id):
                     break
                 tried.add(package)
@@ -125,7 +138,7 @@ class CodeExecutor:
             tuple: (success, pip output)
         """
         command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", *packages]
-        return self._process(command, None, run_id, report, timeout=None)
+        return self._process(command, None, run_id, report, None, self.working_dir)
 
     def stop(self, run_id) -> bool:
         """Stop a running program (and anything it started). Returns False if nothing was running."""
@@ -151,30 +164,34 @@ class CodeExecutor:
         tail = "\n".join(output.strip().splitlines()[-15:])
         return False, f"📦 Couldn't install {names}:\n{tail}"
 
-    def _run(self, code, stdin_text, run_id, report):
-        # The code goes in a temporary file, so the program's input() reads the typed answers
-        handle, path = tempfile.mkstemp(prefix="ai_code_", suffix=".py")
+    def _run(self, code, stdin_text, run_id, report, folder, script=None):
+        # Code from the chat goes in a hidden file in the folder it runs in: the program's input()
+        # reads the typed answers, and it can import the other .py files in that folder
+        path = script or folder / f"{RUN_FILE_PREFIX}{uuid.uuid4().hex[:12]}.py"
         try:
-            with os.fdopen(handle, "w", encoding="utf-8") as script:
-                script.write(code)
-            # -I: ignore the user's Python settings; -u: show output as it comes;
-            # -X utf8: printed emoji/non-English text work on Windows consoles
-            command = [sys.executable, "-I", "-u", "-X", "utf8", path]
-            success, output = self._process(command, stdin_text, run_id, report, self.timeout or None)
+            if not script:
+                path.write_text(code, encoding="utf-8")
+            # -E -s: ignore the user's Python settings (but keep the script's folder importable);
+            # -u: show output as it comes; -X utf8: emoji/non-English text work on Windows consoles
+            command = [sys.executable, "-E", "-s", "-u", "-X", "utf8", str(path)]
+            success, output = self._process(command, stdin_text, run_id, report, self.timeout or None, folder)
+        except OSError as e:
+            return False, f"Couldn't write the code to {folder}: {e}"
         finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            if not script:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
         if success:
             return True, output.strip() or "✅ Code executed successfully"
         return False, output.strip() or "The code stopped with an error"
 
-    def _process(self, command, stdin_text, run_id, report, timeout):
-        """Run a command, passing each output line to report. Returns (success, all output)."""
+    def _process(self, command, stdin_text, run_id, report, timeout, cwd):
+        """Run a command in cwd, passing each output line to report. Returns (success, all output)."""
         try:
             process = subprocess.Popen(
-                command, cwd=self.working_dir, text=True, encoding="utf-8", errors="replace",
+                command, cwd=cwd, text=True, encoding="utf-8", errors="replace",
                 stdin=subprocess.PIPE if stdin_text else subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 start_new_session=os.name != "nt")

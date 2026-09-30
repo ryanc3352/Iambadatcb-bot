@@ -202,3 +202,37 @@ def test_stop_ends_a_running_program(ex):
 def test_execute_warnings_are_kept(ex):
     ok, out = ex.execute_code("import sys\nprint('out')\nprint('warn', file=sys.stderr)")
     assert ok and "out" in out and "warn" in out
+
+
+def test_code_can_import_saved_files(ex):
+    (ex.working_dir / "helpers.py").write_text("def greet():\n    return 'hi from helpers'\n")
+    assert ex.execute_code("import helpers\nprint(helpers.greet())") == (True, "hi from helpers")
+    assert not list(ex.working_dir.glob(".ai_run_*"))  # the temporary file is cleaned up
+
+
+def test_run_saved_script_in_its_folder(ex):
+    game = ex.working_dir / "game"
+    game.mkdir()
+    (game / "utils.py").write_text("SCORE = 42\n")
+    (game / "level.txt").write_text("level 1")
+    (game / "main.py").write_text("import utils\nprint(utils.SCORE, open('level.txt').read())\n")
+    assert ex.execute_code("", script=game / "main.py") == (True, "42 level 1")
+    assert (game / "main.py").exists()  # a saved file is never deleted after running
+
+
+def test_run_in_a_project_folder(ex, tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "data.csv").write_text("a,b\n1,2\n")
+    ok, out = ex.execute_code("print(open('data.csv').read().splitlines()[1])", folder=project)
+    assert (ok, out) == (True, "1,2")
+    assert ex.package_for("data", project) == "data"
+    (project / "tools.py").write_text("")
+    assert ex.package_for("tools", project) is None
+
+
+def test_temporary_run_files_are_not_listed(tmp_path):
+    handler = FileHandler(tmp_path)
+    (tmp_path / ".ai_run_abc.py").write_text("print(1)")
+    (tmp_path / "keep.py").write_text("print(2)")
+    assert [f["path"] for f in handler.list_all_files()] == ["keep.py"]

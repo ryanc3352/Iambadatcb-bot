@@ -40,18 +40,19 @@ To stop it, close the black window.
 | **Memory** | It remembers earlier chats and brings up relevant ones later. **New Conversation** starts a fresh chat (old ones stay in long-term memory). |
 | **Past chats** | **💬 Past Chats** lists your chats, newest first. Click one to read it again and carry on where you left off. ✏️ renames a chat, 🗑️ deletes it (the AI forgets it too). The chat you were in is shown again when you reopen the app. |
 | **Your documents** | **Upload Documents** (PDF, Word, text, Markdown, code). Relevant parts are used in answers; **View Docs** lists them. |
-| **Project folders** | **📂 Add Folder** and pick a folder (or **🗜️ Add Folder (.zip)**). Click the folder to chat about its files. |
+| **Project folders** | **📂 Add Folder** and pick a folder (or **🗜️ Add Folder (.zip)**). Click the folder to chat about its files. **🐙 Add from GitHub** downloads a repository as a project folder. Code from a folder chat runs inside that folder. |
 | **Create files** | "Make me a shopping list file", "save this as notes.md". A **💾 Save** card appears where you can change the name and text, then click Save. Saved files appear under **📄 My Files** (download or delete) and in the `files/ai_files` folder. Name a file ("add eggs to shopping.txt") and the AI sees its content to update it. |
 | **Weather** | "What's the weather in Paris tomorrow?" (live data from Open-Meteo, no account needed). "London, Ontario" works too. |
 | **Web search** | Local first: your documents, folders and memory are checked before going online. If the answer isn't there, the assistant searches the web itself ("🔍 Searched the web for…"). |
 | **Exact maths** | Calculations (`1234*5678`, `15% of 240`, `sqrt(2)^10`, `5 times 6`) and equations (`solve 2x^2 + 3x - 2 = 0`, `3x + 5 = 20`) are worked out exactly by the app, including complex roots, and handed to the model. |
-| **Run code** | When an answer contains Python, a **Run** card appears. Code only runs when you click **Execute**. Missing packages are installed automatically (into the app's own `.venv`). Output shows as it comes, there's no time limit, and **⏹ Stop** ends a program. If the code asks questions with `input()`, type the answers in the box on the card first. |
+| **Run code** | When an answer contains Python, a **Run** card appears. Code only runs when you click **Execute**. Missing packages are installed automatically (into the app's own `.venv`). Output shows as it comes, there's no time limit, and **⏹ Stop** ends a program. If the code asks questions with `input()`, type the answers in the box on the card first. Code runs in `files/ai_files` and can import the `.py` files saved there. A Python file the AI offers has **▶ Save & Run**, and saved `.py` files have a **▶** button under **📄 My Files**; both run the file in its own folder. |
 | **Update** | **⬆️ Update app** downloads the newest version from GitHub, replaces the changed app files and restarts. Chats, saved files, settings and documents are kept; the replaced files are copied to `backups/update-<date>`. |
+| **GitHub** | Paste a github.com link (a repository, a file, a folder or an issue) and the AI reads it before answering. Without a token GitHub allows 60 reads an hour; set `GITHUB_TOKEN` for more and for private repositories. |
+| **Restart** | **🔄 Restart app** restarts the app (when it was started with `Start AI.bat`). |
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
 | **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
 | **Dark mode** | 🌙 at the top left. |
 | **Tidy sidebar** | Click a sidebar heading (💬 Past Chats, 📚 Knowledge Base...) to fold that section away; click again to open it. The app remembers which are folded. |
-| **Experimental** | 🧪 Experimental, at the bottom of the sidebar: settings that are still being tested. |
 | **Problem? Get logs** | **🐞 Problem? Get logs** (top left) downloads what the app did in the last 5 minutes (your messages, the answers, errors, versions) as a text file. Send it to whoever helps you. |
 
 ### Better maths and answers
@@ -80,6 +81,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `MAX_UPLOAD_MB` | `200` | Largest upload (documents and folders) |
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
 | `CODE_EXECUTION_TIMEOUT` | `0` | Seconds before running code is stopped; `0` means no limit |
+| `GITHUB_TOKEN` | (empty) | A GitHub token (github.com → Settings → Developer settings) for more GitHub reads and private repositories |
 | `ENABLE_SELF_IMPROVEMENT` | `true` | Allow approved upgrades to change the code |
 | `LEARNING_ENABLED` | `true` | Save usage statistics and feedback |
 
@@ -130,6 +132,7 @@ files/
   weather_provider.py       Open-Meteo weather
   app_logging.py            the log file behind the 🐞 button
   updater.py                ⬆️ Update: download the newest version and replace changed files
+  github_reader.py          GitHub links and 🐙 Add from GitHub
   templates/, static/       the web page (static/js has one script per part of the page)
   tests/                    automated tests (fake Ollama server)
 ```

@@ -1,4 +1,4 @@
-"""Models (switching and downloading), the 🐞 logs report and the ⬆️ Update button."""
+"""Models (switching and downloading), the 🐞 logs report and the ⬆️ Update and 🔄 Restart buttons."""
 import os
 import platform
 import tempfile
@@ -111,3 +111,16 @@ def update_app():
     if restarting:
         restart_soon()
     return jsonify({'success': True, 'changed': changed, 'restarting': restarting})
+
+
+@bp.route('/api/restart', methods=['POST'])
+def restart_app():
+    """The 🔄 Restart button."""
+    if not json_body().get('confirm'):  # JSON only, so other websites can't press the button
+        return jsonify({'success': False, 'error': 'Send {"confirm": true} to restart'}), 400
+    if not can_restart():
+        return jsonify({'success': False, 'error': 'The app can only restart itself when it was started with '
+                                                   '"Start AI.bat" (or start.py). Close it and start it again.'})
+    log.info("Restarting (🔄 button)")
+    restart_soon()
+    return jsonify({'success': True})

@@ -142,3 +142,24 @@ def test_memory_forget(tmp_path):
     mem.forget([1, 99])  # ids it never had are ignored
     mem.forget([])
     assert mem.collection.get()["ids"] == ["2"]
+
+
+def test_kb_questions_about_the_documents_themselves(kb, tmp_path):
+    """'What's in my knowledge base?' looks like no passage, so the list and the start are given."""
+    doc = tmp_path / "freedonia.txt"
+    doc.write_text("Freedonia facts.\nThe capital of Freedonia is Harborview.\n")
+    kb.add_document(doc)
+    for question in ["what is in my knowledge base?", "what documents do you have?",
+                     "quiz me on my uploaded PDF", "summarize freedonia"]:
+        context = kb.get_context_from_documents(question)
+        assert "freedonia.txt" in context and "Harborview" in context, question
+    assert "[freedonia.txt] " in kb.get_context_from_documents("what is the capital of Freedonia?")
+    assert kb.get_context_from_documents("tell me a joke") == ""
+
+
+def test_kb_document_start_joins_chunks(kb, tmp_path):
+    doc = tmp_path / "long.txt"
+    doc.write_text("".join(f"{i:04d} " for i in range(400)))  # 2000 characters: several chunks
+    kb.add_document(doc)
+    start = kb.document_start("long.txt", max_chars=1200)
+    assert start.startswith("0000 0001") and "0199 " in start and start.endswith("[...]")

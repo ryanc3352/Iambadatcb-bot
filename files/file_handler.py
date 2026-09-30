@@ -18,6 +18,10 @@ class FileHandler:
         self.allowed_directory = Path(allowed_directory).resolve()
         self.allowed_directory.mkdir(parents=True, exist_ok=True)
 
+    def resolve(self, file_path):
+        """The full path of a saved file (PermissionError if it's outside the folder)."""
+        return self._resolve(file_path)
+
     def _resolve(self, file_path):
         """
         Resolve a path relative to the allowed directory.
@@ -63,7 +67,7 @@ class FileHandler:
         files = []
         for path in self.allowed_directory.rglob('*'):
             relative = path.relative_to(self.allowed_directory)
-            if path.is_file() and relative.parts[0] not in self.INTERNAL:
+            if path.is_file() and relative.parts[0] not in self.INTERNAL and not path.name.startswith(".ai_run_"):
                 stat = path.stat()
                 files.append({'path': relative.as_posix(), 'size': stat.st_size, 'modified': stat.st_mtime})
         return sorted(files, key=lambda f: f['modified'], reverse=True)

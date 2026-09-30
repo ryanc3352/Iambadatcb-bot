@@ -273,6 +273,20 @@ function sendFolder(url, formData, input) {
     .finally(() => { input.value = ''; });
 }
 
+async function addGitHubFolder() {
+    const url = prompt('GitHub repository link (e.g. https://github.com/owner/repository):');
+    if (!url || !url.trim()) return;
+    addMessage('user', `🐙 Adding from GitHub: ${url.trim()}`);
+    try {
+        const data = await api('/api/folders/github', { url: url.trim() });
+        addMessage('assistant', data.success ? `${data.message}. Click it under Folder Access to chat about its code.`
+                                             : `❌ ${data.error || 'Download failed'}`);
+        loadFoldersList();
+    } catch (err) {
+        addMessage('assistant', `❌ Download failed: ${err.message}`);
+    }
+}
+
 async function deleteFolder(folderName) {
     if (!confirm(`Delete folder "${folderName}"?`)) return;
     const data = await api(`/api/folders/${encodeURIComponent(folderName)}/delete`, undefined, 'DELETE');
@@ -304,7 +318,16 @@ function loadFilesList() {
             remove.textContent = '🗑️';
             remove.title = 'Delete';
             remove.onclick = () => deleteSavedFile(file.path);
-            row.append(link, remove);
+            row.append(link);
+            if (/\.py$/i.test(file.path)) {
+                const run = document.createElement('button');
+                run.className = 'icon-btn';
+                run.textContent = '▶';
+                run.title = 'Run';
+                run.onclick = () => showFileRunCard(file.path);
+                row.append(run);
+            }
+            row.append(remove);
             list.appendChild(row);
         }
     })
@@ -363,11 +386,4 @@ function setUpFoldingSections() {
             }
         };
     }
-}
-
-// ==================== EXPERIMENTAL ====================
-
-// You were warned.
-function doNotTouch() {
-    window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '_blank', 'noopener');
 }

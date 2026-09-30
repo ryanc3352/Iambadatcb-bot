@@ -1,4 +1,5 @@
 // The ⬆️ Update button: install the newest version from GitHub, then wait for the app to restart.
+// The 🔄 Restart button: just restart.
 
 async function updateApp() {
     if (!confirm('Download the newest version of the app from GitHub and restart it?\n\n'
@@ -26,6 +27,26 @@ async function updateApp() {
     }
     button.disabled = false;
     button.textContent = '⬆️ Update app';
+}
+
+async function restartApp() {
+    if (!confirm('Restart the app? Anything running (code, downloads) is stopped.')) return;
+    const button = document.getElementById('restart-btn');
+    button.disabled = true;
+    button.textContent = '⏳ Restarting...';
+    try {
+        const data = await api('/api/restart', { confirm: true });
+        if (data.success) {
+            await waitForRestart();
+            location.reload();
+            return;
+        }
+        addMessage('assistant', `❌ ${data.error}`);
+    } catch (err) {
+        addMessage('assistant', `❌ Restart failed: ${err.message}`);
+    }
+    button.disabled = false;
+    button.textContent = '🔄 Restart app';
 }
 
 // The app is gone for a few seconds (longer when new libraries are installed); wait until it answers again

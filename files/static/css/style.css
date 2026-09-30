@@ -614,4 +614,3 @@ button {
 .section.folded h3[role="button"]::after { content: " ▸"; }
 .section.folded h3 { margin-bottom: 0; }
 .section.folded > :not(h3) { display: none; }
-.do-not-touch { margin-top: 8px; background: var(--error); border-color: var(--error); color: white; }

@@ -6,7 +6,7 @@ from pathlib import Path
 from calculator import math_context
 from config import CONTEXT_MESSAGES, SEARCH_TOP_K, SYSTEM_PROMPT, UPGRADEABLE_FILES
 from file_offers import FILE_REQUEST_NOTE, wants_file
-from services import (conversation_history, file_handler, knowledge_base, learner, memory,
+from services import (conversation_history, file_handler, github_reader, knowledge_base, learner, memory,
                       upgrade_manager, weather_provider, web_searcher)
 
 
@@ -163,6 +163,7 @@ def build_prompt(user_input, extra_context=""):
     # to a new question but its answer is out of date
     live_context = get_live_context(user_input, found_locally=bool(doc_context))
     calculator_context = math_context(user_input)
+    github_context = github_reader.context_for(user_input)
     code_context = get_code_context(user_input)
     recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
     formatted_history = conversation_history.format_for_prompt(recent_messages)
@@ -171,7 +172,7 @@ def build_prompt(user_input, extra_context=""):
 
     now = datetime.now().strftime("%A %d %B %Y, %H:%M")
     sections = [SYSTEM_PROMPT, f"Current date and time: {now}", feedback, extra_context, code_context, file_context,
-                live_context, calculator_context, doc_context, similar_context,
+                live_context, github_context, calculator_context, doc_context, similar_context,
                 f"Recent conversation:\n{formatted_history}" if formatted_history else "",
                 FILE_REQUEST_NOTE if wants_file(user_input) else ""]  # last, so small models don't miss it
     context = "\n\n".join(s.strip() for s in sections if s and s.strip())

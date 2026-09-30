@@ -106,3 +106,16 @@ def test_update_route_reports_download_errors(monkeypatch):
     monkeypatch.setattr(updater, "download", offline)
     data = ws.app.test_client().post("/api/update", json={"confirm": True}).get_json()
     assert data == {"success": False, "error": "Couldn't download the update"}
+
+
+def test_restart_route(monkeypatch):
+    client = ws.app.test_client()
+    restarts = []
+    monkeypatch.setattr(routes_system, "restart_soon", lambda: restarts.append(1))
+    assert client.post("/api/restart", data="confirm=1").status_code == 400
+    monkeypatch.delenv("AI_ASSISTANT_LAUNCHER", raising=False)
+    data = client.post("/api/restart", json={"confirm": True}).get_json()
+    assert data["success"] is False and "Start AI.bat" in data["error"] and restarts == []
+    monkeypatch.setenv("AI_ASSISTANT_LAUNCHER", "start.py")
+    assert client.post("/api/restart", json={"confirm": True}).get_json() == {"success": True}
+    assert restarts == [1]

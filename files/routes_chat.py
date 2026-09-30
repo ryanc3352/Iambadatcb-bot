@@ -124,21 +124,42 @@ def execute_code():
     code = str(data.get('code', '')).strip()
     if not code:
         return jsonify({'error': 'No code provided'}), 400
+    folder = None
+    if data.get('folder'):  # code from a chat about a project folder runs inside that folder
+        folder = folder_manager.folder_path(str(data['folder']))
+        if folder is None:
+            return jsonify({'error': f"Folder not found: {data['folder']}"}), 404
     packages = [p for p in data.get('packages') or [] if isinstance(p, str)][:20]
+    return stream_run(data, code=code, packages=packages, folder=folder)
+
+
+@bp.route('/api/run-file', methods=['POST'])
+def run_file():
+    """▶ Run a saved .py file in its own folder, so it finds the files next to it"""
+    if not ENABLE_CODE_EXECUTION:
+        return jsonify({'success': False, 'error': 'Code execution is disabled (ENABLE_CODE_EXECUTION)'}), 403
+    data = json_body()
+    script = file_handler.resolve(str(data.get('path', '')))
+    if script.suffix.lower() != '.py' or not script.is_file():
+        return jsonify({'error': 'Only saved .py files can be run'}), 400
+    return stream_run(data, code="", script=script)
+
+
+def stream_run(data, **run):
+    """Run code in the background and stream its output (see execute_code)."""
     stdin_text = str(data.get('input') or '')
     run_id = str(data.get('run_id') or '')[:64] or uuid.uuid4().hex
-
     updates = queue.Queue()
 
-    def run():
+    def work():
         try:
-            result = code_executor.execute_code(code, packages, stdin_text, run_id, on_output=updates.put)
+            result = code_executor.execute_code(stdin_text=stdin_text, run_id=run_id, on_output=updates.put, **run)
         except Exception as e:
             log.exception("Running code failed")
             result = (False, f"Couldn't run the code: {e}")
         updates.put(result)  # a tuple marks the end
 
-    threading.Thread(target=run, daemon=True).start()
+    threading.Thread(target=work, daemon=True).start()
 
     def generate():
         yield f"data: {json.dumps({'run_id': run_id})}\n\n"

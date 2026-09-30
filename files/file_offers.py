@@ -5,7 +5,7 @@ file never depends on the model using the SAVE_FILE format.
 """
 import re
 
-from services import file_handler
+from services import conversation_history, file_handler
 
 
 SAVE_FILE_BLOCK = re.compile(
@@ -20,6 +20,12 @@ FILE_REQUEST = re.compile(
     r"\b(?:create|make|write|save|generate|put|store|export|add|update|edit|change|append|turn|draft)\b"
     rf"[^.?!\n]*?(?:\b(?:files?|documents?|txt)\b|{FILE_NAME.pattern})"
     r"|\bsave (?:it|this|that|them)\b|\bsave\b[^.?!\n]*?\b(?:list|notes?)\b", re.IGNORECASE)
+
+# "main_fixed.py", "new_main.py", "main_v2.py": a changed copy of main.py
+VARIANT_WORDS = r"(?:new|updated?|fixed|fix|modified|improved|final|edited|revised|corrected|copy)"
+VARIANT = re.compile(rf"^(?:{VARIANT_WORDS}[_-])*(.+?)(?:[_-](?:{VARIANT_WORDS}|v?\d{{1,2}}))*$", re.IGNORECASE)
+NEW_FILE_REQUEST = re.compile(r"\b(?:new|another|separate|second|copy|duplicate|create)\b[^.?!\n]*\bfiles?\b"
+                              r"|\bsave (?:it |this |that )?as\b", re.IGNORECASE)
 
 HOW_TO_QUESTION = re.compile(r"\s*how (?:do|can|could|should|would) (?:i|we|you)\b|\s*how to\b", re.IGNORECASE)
 
@@ -55,20 +61,47 @@ def find_file_saves(response, user_input=""):
     Then the answer itself is offered as the file.
     """
     saves = []
+    existing = {f['path'] for f in file_handler.list_all_files()}
     for match in SAVE_FILE_BLOCK.finditer(response):
         try:
             path = file_handler.clean_relative_path(match.group(1))
         except ValueError:
             continue
-        saves.append({'path': path, 'content': match.group(2)})
+        saves.append({'path': existing_original(path, existing, user_input), 'content': match.group(2)})
     if not saves and user_input and "UPGRADE_REQUEST:" not in response and wants_file(user_input):
         suggestion = suggest_file(user_input, response)
         if suggestion:
             saves.append(suggestion)
-    existing = {f['path'] for f in file_handler.list_all_files()}
     for save in saves:
         save['exists'] = save['path'] in existing
     return saves[:5]
+
+
+def existing_original(path, existing, user_input=""):
+    """'main_fixed.py' -> 'main.py' when main.py is saved: a change goes back into the same file,
+    unless the user asked for a new file or named this one."""
+    if path in existing or path.lower() in user_input.lower() or NEW_FILE_REQUEST.search(user_input):
+        return path
+    folder, _, name = path.rpartition('/')
+    stem, dot, extension = name.rpartition('.')
+    if not dot or not stem:
+        return path
+    original = (f"{folder}/" if folder else "") + f"{VARIANT.match(stem).group(1)}.{extension}"
+    return original if original in existing else path
+
+
+def recent_file(extension):
+    """The saved file with this extension named last in the chat (the one being changed), or None."""
+    existing = {f['path'] for f in file_handler.list_all_files()}
+    for message in reversed(conversation_history.get_last_n_messages(6)):
+        for name in reversed(FILE_NAME.findall(message['content'])):
+            try:
+                path = file_handler.clean_relative_path(name)
+            except ValueError:
+                continue
+            if path in existing and path.lower().endswith(f".{extension}"):
+                return path
+    return None
 
 
 def suggest_file(user_input, response):
@@ -88,8 +121,10 @@ def suggest_file(user_input, response):
     if not content.strip():
         return None
     # The name the user gave, else the one the model mentions just before (or after) the content
-    names = FILE_NAME.findall(user_input) or FILE_NAME.findall(before)[-1:] or FILE_NAME.findall(after)[:1]
     extension = LANGUAGE_EXTENSIONS.get(language.lower(), 'txt')
+    # ...or the file this chat is about ("fix it"), before making up a new name
+    names = (FILE_NAME.findall(user_input) or FILE_NAME.findall(before)[-1:] or FILE_NAME.findall(after)[:1]
+             or [name for name in [recent_file(extension)] if name])
     for name in names + [_unused_name('notes' if extension == 'txt' else 'new_file', extension)]:
         try:
             return {'path': file_handler.clean_relative_path(name), 'content': content}

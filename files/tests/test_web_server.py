@@ -297,6 +297,30 @@ def test_execute_code_installs_packages_and_reads_answers(client, monkeypatch):
     assert installed == ["requests"]
 
 
+def test_run_saved_file(client):
+    client.post("/api/files/save", json={"path": "game/utils.py", "content": "NAME = 'snake'"})
+    client.post("/api/files/save", json={"path": "game/main.py", "content": "import utils\nprint(utils.NAME, input())"})
+    done = run_code_at(client, "/api/run-file", {"path": "game/main.py", "input": "ok"})[-1]
+    assert done == {"done": True, "success": True, "output": "snake ok"}
+    client.post("/api/files/save", json={"path": "notes.txt", "content": "x"})
+    assert post(client, "/api/run-file", {"path": "notes.txt"}).status_code == 400
+    assert post(client, "/api/run-file", {"path": "../web_server.py"}).status_code == 403
+
+
+def test_code_from_a_folder_chat_runs_in_that_folder(client, tmp_path):
+    source = tmp_path / "proj"
+    source.mkdir()
+    (source / "data.txt").write_text("folder data")
+    sv.folder_manager.add_folder(source, "proj")
+    done = run_code(client, {"code": "print(open('data.txt').read())", "folder": "proj"})[-1]
+    assert done["output"] == "folder data"
+    assert post(client, "/api/execute-code", {"code": "print(1)", "folder": "nope"}).status_code == 404
+
+
+def run_code_at(client, url, body):
+    return sse_events(post(client, url, body))
+
+
 def test_stop_code_when_nothing_runs(client):
     assert post(client, "/api/stop-code", {"run_id": "nope"}).get_json() == {"success": False}
 

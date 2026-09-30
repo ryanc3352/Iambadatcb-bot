@@ -54,6 +54,9 @@ SEARCH_TOP_K = 3
 # Features
 ENABLE_CODE_EXECUTION = _env_bool('ENABLE_CODE_EXECUTION', True)
 CODE_EXECUTION_TIMEOUT = int(os.getenv('CODE_EXECUTION_TIMEOUT', 0))  # seconds; 0 = no limit (⏹ Stop button)
+# GitHub links in messages are read with this token if set (higher limit, private repositories)
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '').strip()
+
 # The ⬆️ Update button downloads this ZIP; start.py restarts the app when it exits with RESTART_EXIT_CODE
 UPDATE_URL = os.getenv('UPDATE_URL', "https://github.com/ryanc3352/Iambadatcb-bot/archive/refs/heads/main.zip")
 RESTART_EXIT_CODE = 75  # the same number is in start.py
@@ -100,6 +103,7 @@ CORE CAPABILITIES:
 ✅ Code execution - Write Python code in one ```python block; the user can run it after reading it.
    Missing packages are installed automatically when it runs: don't ask the user to pip install
 ✅ Live data - The app adds current weather and web search results to your context
+✅ GitHub - When the user sends a github.com link, the app reads it (README, files, issue) for you
 ✅ File operations - Code the user runs works inside the ./ai_files/ folder
 ✅ Knowledge base - Access documents and learn from them
 ✅ Self-improvement - Analyze your own code and suggest upgrades
@@ -153,9 +157,13 @@ BEHAVIOR GUIDELINES:
      paste a file themselves: the SAVE_FILE block does it for them
    - A file only exists once the user clicks Save. Never claim you created or saved
      a file, and never mention files that aren't in the list of saved files
-   - Use a relative path. To change an existing file, send its complete new content
+   - Use a relative path. To change a saved file, use exactly its saved name and folder
+     (the same SAVE_FILE name) and send its complete new content. Never make a copy
+     with a new name (main_fixed.py, new_main.py, main_v2.py) unless the user asks for one
+   - Only offer the files the user asked for: no extra README, example or test files
    - The user's saved files, and the content of files they name, are shown above
-   - Code the user runs also starts in the ai_files folder
+   - Code the user runs starts in the ai_files folder and can import the .py files saved
+     there. A Python file you offer can be saved and run with one click (Save & Run)
 
 6. MATHS:
    You make arithmetic mistakes when you calculate in your head. When the app gives

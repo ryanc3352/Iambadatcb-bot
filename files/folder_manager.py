@@ -31,6 +31,10 @@ class FolderManager:
         with open(self.registry_path, 'w', encoding='utf-8') as f:
             json.dump(self.folders, f, indent=2)
 
+    def folder_path(self, folder_name):
+        """Path of a registered project folder, or None."""
+        return self._folder_path(folder_name)
+
     def _folder_path(self, folder_name):
         """Path of a registered folder. Always inside the uploads folder, whatever the registry says."""
         if folder_name not in self.folders:

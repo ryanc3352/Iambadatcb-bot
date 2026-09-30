@@ -279,3 +279,31 @@ def test_model_is_told_which_files_really_exist(client, fake_ollama):
                                        ("ai_files", "ai_files")])
 def test_paths_inside_ai_files_are_not_nested(raw, clean):
     assert FileHandler.clean_relative_path(raw) == clean
+
+
+def test_changed_copy_goes_back_into_the_saved_file(client, fake_ollama):
+    client.post("/api/files/save", json={"path": "main.py", "content": "print('old')"})
+    fake_ollama.reply = "Fixed:\nSAVE_FILE: main_fixed.py\n```python\nprint('new')\n```"
+    files = client.post("/api/chat", json={"message": "fix the bug in main.py"}).get_json()["files"]
+    assert files == [{"path": "main.py", "content": "print('new')", "exists": True}]
+    # ...unless the user asks for a new file
+    files = client.post("/api/chat", json={"message": "save the fix as a new file"}).get_json()["files"]
+    assert files[0]["path"] == "main_fixed.py"
+
+
+def test_existing_original():
+    existing = {"main.py", "game/level.py", "notes.txt"}
+    assert file_offers.existing_original("new_main.py", existing) == "main.py"
+    assert file_offers.existing_original("game/level_v2.py", existing) == "game/level.py"
+    assert file_offers.existing_original("report_2024.txt", existing) == "report_2024.txt"
+    assert file_offers.existing_original("main_fixed.py", existing, "create another file for the fix") == "main_fixed.py"
+    assert file_offers.existing_original("main_fixed.py", existing, "call it main_fixed.py") == "main_fixed.py"
+
+
+def test_unnamed_change_goes_to_the_file_the_chat_is_about(client, fake_ollama):
+    client.post("/api/files/save", json={"path": "snake.py", "content": "print('snake')"})
+    fake_ollama.reply = "Here it is."
+    client.post("/api/chat", json={"message": "look at snake.py"})
+    fake_ollama.reply = "I can't edit files, but here is the new code:\n```python\nprint('faster snake')\n```"
+    files = client.post("/api/chat", json={"message": "make the file faster"}).get_json()["files"]
+    assert files == [{"path": "snake.py", "content": "print('faster snake')", "exists": True}]

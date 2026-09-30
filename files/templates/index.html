@@ -27,6 +27,10 @@
                     title="Download the newest version of the app from GitHub and restart. Chats, files and settings are kept.">
                 ⬆️ Update app
             </button>
+            <button id="restart-btn" class="btn-secondary btn-block" onclick="restartApp()"
+                    title="Restart the app (like closing it and starting it again)">
+                🔄 Restart app
+            </button>
             <button class="btn-new-conv" onclick="newConversation()">➕ New Conversation</button>
 
             <hr>
@@ -62,6 +66,10 @@
                     🗜️ Add Folder (.zip)
                 </button>
                 <input type="file" id="folder-input" hidden accept=".zip" onchange="uploadFolder(event)">
+                <button class="btn-secondary btn-block" onclick="addGitHubFolder()"
+                        title="Download a GitHub repository so the AI can read (and run) its code">
+                    🐙 Add from GitHub
+                </button>
                 <button class="btn-secondary btn-block" onclick="loadFoldersList()">📂 Refresh Folders</button>
                 <div id="folders-list" class="scroll-list boxed">
                     <p class="hint">No folders uploaded</p>
@@ -100,13 +108,6 @@
                 </div>
             </div>
 
-            <hr>
-
-            <div class="section" id="experimental-section" data-collapsed="true">
-                <h3>🧪 Experimental</h3>
-                <p class="hint">Settings that are still being tested.</p>
-                <button class="btn-secondary btn-block btn-small do-not-touch" onclick="doNotTouch()">⚠️ Do not touch</button>
-            </div>
         </aside>
 
         <!-- CHAT -->
