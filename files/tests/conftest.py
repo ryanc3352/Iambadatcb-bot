@@ -36,6 +36,7 @@ class FakeOllama:
         self.pulled, self.pull_error = [], None
         self.models = ["mistral:latest"]        # downloaded
         self.loaded, self.unloaded = [], []     # in memory / unloaded via keep_alive=0
+        self.vram_share = 1.0                   # part of a loaded model on the graphics card
         self.token_delay = self.pull_delay = 0  # slow streaming/downloads down (for manual UI tests)
         self.requests.clear()
 
@@ -65,7 +66,9 @@ class FakeOllama:
                 if self.path == "/api/tags":
                     self._send_json(200, {"models": [{"name": m, "size": 4_100_000_000} for m in fake.models]})
                 elif self.path == "/api/ps":
-                    self._send_json(200, {"models": [{"name": m} for m in fake.loaded]})
+                    self._send_json(200, {"models": [{"name": m, "size": 6_000_000_000,
+                                                      "size_vram": int(6_000_000_000 * fake.vram_share)}
+                                                     for m in fake.loaded]})
                 else:
                     self._send_json(404, {"error": "not found"})
 

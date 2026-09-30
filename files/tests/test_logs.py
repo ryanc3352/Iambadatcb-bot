@@ -5,6 +5,8 @@ from datetime import datetime
 import web_server as ws
 import config
 from app_logging import recent_lines
+from llm_interface import LLMError
+import services
 
 
 def test_recent_lines_keeps_the_last_minutes_and_tracebacks(tmp_path):
@@ -49,3 +51,20 @@ def test_routine_requests_and_colour_codes_are_left_out():
     lines = "\n".join(recent_lines(config.LOGS_PATH, 1))
     assert "GET /api/stats" not in lines and "GET /static/a.js" not in lines
     assert '"POST /api/chat HTTP/1.1" 500 -' in lines and "\x1b" not in lines
+
+
+def test_report_says_where_the_model_runs(fake_ollama, monkeypatch):
+    client = ws.app.test_client()
+    report = lambda: client.get("/api/logs").get_json()["report"]
+    assert "Model running on: nothing loaded right now" in report()
+    fake_ollama.loaded = ["qwen3:8b"]
+    assert "Model running on: qwen3:8b on graphics card (100%), 6.0 GB" in report()
+    fake_ollama.vram_share = 0.4
+    assert "qwen3:8b on 40% on the graphics card, the rest on the processor" in report()
+    fake_ollama.vram_share = 0
+    assert "processor only, NOT the graphics card" in report()
+
+    def ollama_down():
+        raise LLMError("Can't connect to Ollama")
+    monkeypatch.setattr(services.llm_interface, "loaded_models", ollama_down)
+    assert "Model running on: unknown (Ollama didn't answer)" in report()

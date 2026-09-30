@@ -214,9 +214,15 @@ class LLMInterface:
         """Downloaded models: [{'name', 'size'}] (size in bytes)."""
         return [{'name': m['name'], 'size': m.get('size', 0)} for m in self._get("/api/tags").get('models', [])]
 
+    def loaded_models(self):
+        """Models loaded in memory: [{'name', 'size', 'size_vram'}] in bytes; size_vram is the part
+        on the graphics card (the rest runs on the processor, which is much slower)."""
+        return [{'name': m['name'], 'size': m.get('size', 0), 'size_vram': m.get('size_vram', 0)}
+                for m in self._get("/api/ps").get('models', [])]
+
     def running_models(self):
         """Names of the models currently loaded in memory."""
-        return [m['name'] for m in self._get("/api/ps").get('models', [])]
+        return [m['name'] for m in self.loaded_models()]
 
     def pull_model(self, name):
         """Download a model. Yields Ollama's progress updates ({'status', 'completed', 'total'}).
