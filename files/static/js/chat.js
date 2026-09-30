@@ -127,13 +127,37 @@ async function streamAnswer(message) {
 const SAVE_FILE_BLOCK = /SAVE_FILE:\**[ \t]*`?([^\n`*]+?)`?\**[ \t]*\n+```[\w+.-]*[ \t]*\n([\s\S]*?)\n?```/g;
 
 // Parse "UPGRADE_REQUEST: FILE: ... DESCRIPTION: ... CODE: ```python ... ```".
-// The code runs to the closing fence (or the end of the message), blank lines included.
+// Small models often put each changed function in its own block, so every Python block after
+// CODE: is used. Without fences (or a closing fence) the code runs to the end of the message.
 function parseUpgradeRequest(text) {
-    const match = text.match(/UPGRADE_REQUEST:\s*FILE:\s*(.+?)\s*\n\s*DESCRIPTION:\s*([\s\S]+?)\s*CODE:\s*(?:```[\w-]*\n([\s\S]*?)\n```|([\s\S]+))/);
+    const match = text.match(/UPGRADE_REQUEST:\s*FILE:\s*(.+?)\s*\n\s*DESCRIPTION:\s*([\s\S]+?)\s*CODE:[ \t]*\n?([\s\S]*)/);
     if (!match) return null;
-    const code = (match[3] !== undefined ? match[3] : match[4]).trim();
-    if (!code) return null;
+    const blocks = [];
+    let block = null, python = false;
+    for (const line of match[3].split('\n')) {
+        const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+        if (block === null && fence) {
+            block = [];
+            python = /^(python3?|py)?$/i.test(fence[1]);
+        } else if (block !== null && fence && !fence[1]) {
+            if (python) blocks.push(block.join('\n'));
+            block = null;
+        } else if (block !== null) {
+            block.push(line);
+        }
+    }
+    if (!blocks.length) blocks.push(block !== null ? block.join('\n') : match[3]);
+    // A method sent on its own is indented: remove each block's shared indentation
+    const code = blocks.map(dedent).join('\n\n').replace(/^\s*\n/, '').trimEnd();
+    if (!code.trim()) return null;
     return { file: match[1].trim(), description: match[2].trim(), code };
+}
+
+function dedent(code) {
+    const lines = code.split('\n');
+    const indents = lines.filter(line => line.trim()).map(line => line.match(/^ */)[0].length);
+    const cut = indents.length ? Math.min(...indents) : 0;
+    return lines.map(line => line.slice(Math.min(cut, line.match(/^ */)[0].length))).join('\n');
 }
 
 function formatMessage(contentDiv, text) {

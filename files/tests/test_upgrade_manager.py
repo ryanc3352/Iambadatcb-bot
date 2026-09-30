@@ -55,10 +55,19 @@ def test_path_components_are_ignored(um):
     assert ok
 
 
-def test_rejects_code_that_drops_definitions(um):
+def test_a_partial_upgrade_keeps_the_rest(um):
     ok, message = um.apply_upgrade("tools.py", "def helper():\n    return 5\n")
-    assert not ok and "LIMIT" in message and "Thing" in message
-    assert (um.project_dir / "tools.py").read_text() == ORIGINAL
+    assert ok and message == "✅ Upgraded tools.py: changed helper; the rest is as it was."
+    code = (um.project_dir / "tools.py").read_text()
+    assert "LIMIT = 3" in code and "class Thing" in code and "return 5" in code
+
+
+def test_an_indented_method_sent_alone_goes_into_the_class(um):
+    ok, message = um.apply_upgrade("tools.py", "```python\n    def go(self):\n        return 1\n```")
+    assert ok, message
+    namespace = {}
+    exec((um.project_dir / "tools.py").read_text(), namespace)
+    assert namespace["Thing"]().go() == 1
 
 
 def test_rollback(um):

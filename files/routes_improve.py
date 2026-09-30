@@ -85,8 +85,9 @@ Overall code quality score: {score} out of 100
 Upgrades already applied:
 {past_text}
 
-Propose ONE UPGRADE_REQUEST for {target} that fixes these issues. Start from its current
-code, keep every existing class, function and setting, and don't repeat earlier upgrades."""
+Propose ONE UPGRADE_REQUEST for {target} that fixes these issues. In its one code block, send
+only the functions you change, each copied complete from the current code with your fix (methods
+under their class line). Don't repeat earlier upgrades."""
     else:
         prompt = f"""Overall code quality score: {score} out of 100. No upgradeable file has issues right now.
 

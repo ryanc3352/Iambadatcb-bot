@@ -50,7 +50,7 @@ To stop it, close the black window.
 | **GitHub** | Paste a github.com link (a repository, a file, a folder or an issue) and the AI reads it before answering. Without a token GitHub allows 60 reads an hour; set `GITHUB_TOKEN` for more and for private repositories. |
 | **Restart** | **🔄 Restart app** restarts the app (when it was started with `Start AI.bat`). |
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
-| **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
+| **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. The model can send just the functions it changes: each replaces the old one and the rest of the file stays. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
 | **Dark mode** | 🌙 at the top left. |
 | **Tidy sidebar** | Click a sidebar heading (💬 Past Chats, 📚 Knowledge Base...) to fold that section away; click again to open it. The app remembers which are folded. |
 | **Problem? Get logs** | **🐞 Problem? Get logs** (top left) downloads what the app did in the last 5 minutes (your messages, the answers, errors, versions) as a text file. Send it to whoever helps you. |
@@ -90,7 +90,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 - **Executed code is not sandboxed.** It runs as you, in the `files/ai_files` folder, with a
   no time limit, and packages it needs are installed from the internet (PyPI). Read code before clicking Execute.
 - Upgrades can only change the app's own listed files, must still contain everything the
-  file had before, and are backed up first.
+  file had before (classes, their methods, functions and settings), and are backed up first.
 - The server only listens on your own PC (`127.0.0.1`).
 - A short log of recent questions, answers and errors is kept in `files/logs` (at most about
   3 MB) for the 🐞 button. It never leaves your PC unless you send it to someone.

@@ -224,7 +224,7 @@ function approveUpgrade(button, file, description, code, card) {
     api('/api/upgrade/apply', { file, description, code })
     .then(data => {
         if (!data.success) return failed(`❌ Upgrade failed: ${data.message || data.error}`);
-        addMessage('assistant', `✅ Upgrade applied to ${file}!\n\n${data.message}\n\n⚠️ Restart the server to use the new code.`);
+        addMessage('assistant', `✅ Upgrade applied to ${file}!\n\n${data.message}\n\n🔄 Click Restart app in the sidebar to use the new code.`);
         card.remove();
     })
     .catch(err => failed(`❌ Error applying upgrade: ${err.message}`));

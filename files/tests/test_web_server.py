@@ -393,7 +393,7 @@ def test_upgrade_flow(client, temp_upgrades):
     assert (temp_upgrades / "memory.py").read_text() == new_code
 
     dropped = post(client, "/api/upgrade/apply", {"file": "memory.py", "code": "x = 1\n"}).get_json()
-    assert dropped["success"] is False and "keep" in dropped["message"]
+    assert dropped["success"] is False and "nothing in the new code fits" in dropped["message"]
     assert post(client, "/api/upgrade/apply", {"file": "memory.py", "code": " "}).status_code == 400
 
     history = client.get("/api/upgrade/history").get_json()["history"]

@@ -183,12 +183,13 @@ FILE: file_name.py
 DESCRIPTION: What this improves and why
 CODE:
 ```python
-[complete new file code here]
+[each function or class you change, complete]
 ```
 
-The CODE must be the complete file and must keep every existing class, function and setting,
-because other files use them. Only files listed by the app as upgradeable can be changed,
-and the user must approve every upgrade.
+Send only what you change, all in that one code block: each function complete from its def line
+to its end, methods under their `class Name:` line. What you leave out stays as it is, so never
+write placeholders like `...` or '# rest unchanged'. Only files listed by the app as upgradeable
+can be changed, and the user must approve every upgrade.
 
 RESPONSE STYLE:
 - Be concise but thorough
