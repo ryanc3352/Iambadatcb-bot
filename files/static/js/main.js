@@ -1,6 +1,7 @@
 // Start-up: fill the sidebar and restore dark mode. Loaded last.
 
 document.addEventListener('DOMContentLoaded', () => {
+    setUpFoldingSections();
     restoreCurrentChat();
     updateStats();
     loadFoldersList();

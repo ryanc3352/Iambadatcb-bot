@@ -602,3 +602,11 @@ button {
 .model-row.in-use { border: 2px solid var(--accent-1); }
 .model-name-row { margin-top: 8px; }
 .model-name-row input { flex: 1; }
+
+/* Sidebar sections fold away when you click their heading */
+.section h3[role="button"] { cursor: pointer; user-select: none; }
+.section h3[role="button"]::after { content: " ▾"; }
+.section.folded h3[role="button"]::after { content: " ▸"; }
+.section.folded h3 { margin-bottom: 0; }
+.section.folded > :not(h3) { display: none; }
+.do-not-touch { margin-top: 8px; background: var(--error); border-color: var(--error); color: white; }

@@ -49,6 +49,8 @@ To stop it, close the black window.
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
 | **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
 | **Dark mode** | 🌙 at the top left. |
+| **Tidy sidebar** | Click a sidebar heading (💬 Past Chats, 📚 Knowledge Base...) to fold that section away; click again to open it. The app remembers which are folded. |
+| **Experimental** | 🧪 Experimental, at the bottom of the sidebar: settings that are still being tested. |
 | **Problem? Get logs** | **🐞 Problem? Get logs** (top left) downloads what the app did in the last 5 minutes (your messages, the answers, errors, versions) as a text file. Send it to whoever helps you. |
 
 ### Better maths and answers

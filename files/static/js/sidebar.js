@@ -320,3 +320,54 @@ function deleteSavedFile(path) {
         updateStats();
     });
 }
+
+// ==================== FOLDING SECTIONS ====================
+
+// Click a section's heading to fold it away; which ones are folded is remembered.
+const FOLDED_KEY = 'foldedSections';
+
+function foldedSections() {
+    try {
+        return JSON.parse(localStorage.getItem(FOLDED_KEY)) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function setUpFoldingSections() {
+    const saved = foldedSections();
+    for (const section of document.querySelectorAll('.sidebar .section')) {
+        const heading = section.querySelector('h3');
+        if (!heading) continue;
+        const key = heading.textContent.trim();
+        const fold = folded => {
+            section.classList.toggle('folded', folded);
+            heading.setAttribute('aria-expanded', String(!folded));
+        };
+        fold(key in saved ? saved[key] : section.dataset.collapsed === 'true');
+        heading.setAttribute('role', 'button');
+        heading.tabIndex = 0;
+        const toggle = () => {
+            fold(!section.classList.contains('folded'));
+            const all = foldedSections();
+            all[key] = section.classList.contains('folded');
+            try {
+                localStorage.setItem(FOLDED_KEY, JSON.stringify(all));
+            } catch (e) { /* private window: just don't remember */ }
+        };
+        heading.onclick = toggle;
+        heading.onkeydown = e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggle();
+            }
+        };
+    }
+}
+
+// ==================== EXPERIMENTAL ====================
+
+// You were warned.
+function doNotTouch() {
+    window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '_blank', 'noopener');
+}
