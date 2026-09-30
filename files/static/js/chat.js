@@ -41,7 +41,7 @@ function newAnswer() {
 
 // The cards that go with an answer: code to run, files to save
 function showAnswerCards(data) {
-    if (data.has_code && data.code) showCodeRequest(data.code);
+    if (data.has_code && data.code) showCodeRequest(data.code, data.packages || []);
     (data.files || []).forEach(f => showSaveFileRequest(f.path, f.content, f.exists));
     feedbackBtn.hidden = false;
 }

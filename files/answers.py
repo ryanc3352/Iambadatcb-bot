@@ -101,8 +101,11 @@ def _visible_tokens(tokens):
         yield rest
 
 
+NO_CARDS = {'has_code': False, 'code': None, 'packages': [], 'files': []}
+
+
 def answer_cards(user_input, response):
-    """What to show under an answer: code the user may run, and files to save.
+    """What to show under an answer: code the user may run (with the packages it needs), and files to save.
 
     Content offered as a file isn't also offered to run ("milk, eggs" is a list, not Python).
     """
@@ -110,7 +113,8 @@ def answer_cards(user_input, response):
     has_code, code = find_runnable_code(response)
     if code and any(f['content'].strip() == code.strip() for f in files):
         has_code, code = False, None
-    return has_code, code, files
+    packages = code_executor.find_packages(response) if has_code else []
+    return {'has_code': has_code, 'code': code, 'packages': packages, 'files': files}
 
 
 def find_runnable_code(response):

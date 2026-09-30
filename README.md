@@ -45,7 +45,8 @@ To stop it, close the black window.
 | **Weather** | "What's the weather in Paris tomorrow?" (live data from Open-Meteo, no account needed). "London, Ontario" works too. |
 | **Web search** | Local first: your documents, folders and memory are checked before going online. If the answer isn't there, the assistant searches the web itself ("🔍 Searched the web for…"). |
 | **Exact maths** | Calculations (`1234*5678`, `15% of 240`, `sqrt(2)^10`, `5 times 6`) and equations (`solve 2x^2 + 3x - 2 = 0`, `3x + 5 = 20`) are worked out exactly by the app, including complex roots, and handed to the model. |
-| **Run code** | When an answer contains Python, a **Run** card appears. Code only runs when you click **Execute**. |
+| **Run code** | When an answer contains Python, a **Run** card appears. Code only runs when you click **Execute**. Missing packages are installed automatically (into the app's own `.venv`). Output shows as it comes, there's no time limit, and **⏹ Stop** ends a program. If the code asks questions with `input()`, type the answers in the box on the card first. |
+| **Update** | **⬆️ Update app** downloads the newest version from GitHub, replaces the changed app files and restarts. Chats, saved files, settings and documents are kept; the replaced files are copied to `backups/update-<date>`. |
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
 | **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
 | **Dark mode** | 🌙 at the top left. |
@@ -78,13 +79,14 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `DATA_DIR` | the `files` folder | Where chats, uploads, saved files, backups and logs are stored |
 | `MAX_UPLOAD_MB` | `200` | Largest upload (documents and folders) |
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
+| `CODE_EXECUTION_TIMEOUT` | `0` | Seconds before running code is stopped; `0` means no limit |
 | `ENABLE_SELF_IMPROVEMENT` | `true` | Allow approved upgrades to change the code |
 | `LEARNING_ENABLED` | `true` | Save usage statistics and feedback |
 
 ## Safety
 
 - **Executed code is not sandboxed.** It runs as you, in the `files/ai_files` folder, with a
-  30-second limit. Read code before clicking Execute.
+  no time limit, and packages it needs are installed from the internet (PyPI). Read code before clicking Execute.
 - Upgrades can only change the app's own listed files, must still contain everything the
   file had before, and are backed up first.
 - The server only listens on your own PC (`127.0.0.1`).
@@ -113,7 +115,7 @@ files/
   routes_chat.py            chat, running approved code, history, stats, feedback
   routes_files.py           saved files, uploaded documents, project folders
   routes_improve.py         self-improvement and upgrades
-  routes_system.py          models and the 🐞 logs
+  routes_system.py          models, the 🐞 logs and the ⬆️ Update button
   services.py               the shared parts (model, memory, files...), created once
   prompts.py                what the model is told with each question
   answers.py                getting answers (with a web search when needed) and saving them
@@ -127,6 +129,7 @@ files/
   web_search.py             web search (ddgs, Wikipedia, DuckDuckGo instant answers)
   weather_provider.py       Open-Meteo weather
   app_logging.py            the log file behind the 🐞 button
+  updater.py                ⬆️ Update: download the newest version and replace changed files
   templates/, static/       the web page (static/js has one script per part of the page)
   tests/                    automated tests (fake Ollama server)
 ```

@@ -61,7 +61,7 @@ def test_usage_is_tracked(client, fake_ollama, monkeypatch):
     before = client.get("/api/self/learning").get_json()["insights"]
     chat(client, "weather in Rome")
     chat(client, "latest news")
-    client.post("/api/execute-code", json={"code": "print(1)"})
+    client.post("/api/execute-code", json={"code": "print(1)"}).get_data()  # reads the whole run
     after = client.get("/api/self/learning").get_json()["insights"]
     assert after["total_conversations"] == before["total_conversations"] + 2
     usage = sv.learner.learning_data["feature_usage"]

@@ -1,13 +1,16 @@
-"""Models (switching and downloading) and the 🐞 logs report."""
+"""Models (switching and downloading), the 🐞 logs report and the ⬆️ Update button."""
+import os
 import platform
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
+import updater
 from app_logging import recent_lines
-from config import AI_FILES_PATH, LOGS_PATH, OLLAMA_URL
+from config import AI_FILES_PATH, BACKUPS_PATH, BASE_DIR, LOGS_PATH, OLLAMA_URL, RESTART_EXIT_CODE, UPDATE_URL
 from llm_interface import LLMError
 from routes_common import json_body
 from services import file_handler, llm_interface, log, model_manager
@@ -80,3 +83,31 @@ def get_logs():
               *system_summary(), "", "--- App log ---",
               *(recent_lines(LOGS_PATH, minutes) or ["(nothing logged)"])]
     return jsonify({'report': "\n".join(report)})
+
+
+def can_restart():
+    """True when start.py runs the app, so it starts again after exiting."""
+    return os.getenv("AI_ASSISTANT_LAUNCHER") == "start.py"
+
+
+def restart_soon():
+    """Exit after the answer has been sent; start.py installs new libraries and starts the app again."""
+    threading.Timer(1.5, os._exit, args=(RESTART_EXIT_CODE,)).start()
+
+
+@bp.route('/api/update', methods=['POST'])
+def update_app():
+    """The ⬆️ Update button: install the newest version from GitHub, then restart."""
+    if not json_body().get('confirm'):  # JSON only, so other websites can't press the button
+        return jsonify({'success': False, 'error': 'Send {"confirm": true} to update'}), 400
+    try:
+        result = updater.update(UPDATE_URL, BASE_DIR, BACKUPS_PATH)
+    except updater.UpdateError as e:
+        log.warning("Update failed: %s", e)
+        return jsonify({'success': False, 'error': str(e)})
+    changed = result['changed']
+    log.info("Updated %d files: %s (old files in %s)", len(changed), ", ".join(changed[:50]), result['backup'])
+    restarting = bool(changed) and can_restart()
+    if restarting:
+        restart_soon()
+    return jsonify({'success': True, 'changed': changed, 'restarting': restarting})

@@ -10,41 +10,87 @@ function showCodeResult(card, success, text, successLabel = '✅ Output:') {
 
 // ==================== RUN CODE ====================
 
-function showCodeRequest(code) {
+function showCodeRequest(code, packages = []) {
     const card = document.createElement('div');
     card.className = 'code-execution-request';
     card.innerHTML = `
         <div class="card-title">
             <strong>💻 Code Execution Request</strong>
-            <small>Runs on your computer with your permissions. Read it before executing.</small>
+            <small>Runs on your computer with your permissions. Read it before executing.
+                Missing packages are installed automatically.</small>
         </div>
         <div class="code-block"><div class="code-lines"></div></div>
+        <div class="code-packages hint" hidden></div>
+        <label class="code-answers" hidden>Typed answers: what the program asks for with input(), one per line
+            <textarea class="save-content code-input" rows="3" spellcheck="false"></textarea>
+        </label>
         <div class="card-buttons">
             <button class="btn-execute">✅ Execute</button>
-            <button class="btn-skip">❌ Skip</button>
+            <button class="btn-skip btn-stop" hidden>⏹ Stop</button>
+            <button class="btn-skip btn-dismiss">❌ Skip</button>
         </div>
     `;
     card.querySelector('.code-lines').textContent = code;
+    if (packages.length) {
+        const note = card.querySelector('.code-packages');
+        note.textContent = `📦 Installs first if missing: ${packages.join(', ')}`;
+        note.hidden = false;
+    }
+    card.querySelector('.code-answers').hidden = !/\binput\s*\(/.test(code);
     const runBtn = card.querySelector('.btn-execute');
-    runBtn.onclick = () => executeCode(runBtn, code, card);
-    card.querySelector('.btn-skip').onclick = () => card.remove();
+    runBtn.onclick = () => executeCode(runBtn, code, packages, card);
+    card.querySelector('.btn-dismiss').onclick = () => card.remove();
     appendToChat(card);
 }
 
-function executeCode(button, code, card) {
+// Runs the code with no time limit, showing its output as it comes; ⏹ Stop ends it
+async function executeCode(button, code, packages, card) {
+    const stopBtn = card.querySelector('.btn-stop');
+    const input = card.querySelector('.code-input').value;
+    card.querySelectorAll('.code-output, .code-error').forEach(el => el.remove());
+    const live = document.createElement('div');
+    live.className = 'code-output code-live';
+    card.appendChild(live);
     button.disabled = true;
     button.textContent = '⏳ Running...';
-    api('/api/execute-code', { code })
-    .then(data => {
-        showCodeResult(card, data.success, data.output || data.error || '');
-        button.hidden = true;
-        updateStats();
-    })
-    .catch(err => {
-        showCodeResult(card, false, err.message);
-        button.disabled = false;
-        button.textContent = '✅ Execute';
-    });
+    card.querySelector('.btn-dismiss').hidden = true;
+    stopBtn.hidden = false;
+    stopBtn.disabled = false;
+    let runId = null;
+    stopBtn.onclick = () => {
+        stopBtn.disabled = true;
+        if (runId) api('/api/stop-code', { run_id: runId }).catch(() => {});
+    };
+    let result = null;
+    try {
+        const response = await fetch('/api/execute-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, packages, input })
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || `Server error ${response.status}`);
+        }
+        await readEvents(response, data => {
+            if (data.run_id) runId = data.run_id;
+            if (data.output !== undefined && !data.done) {
+                live.textContent += data.output;
+                live.scrollTop = live.scrollHeight;
+            }
+            if (data.done) result = data;
+        });
+        if (!result) throw new Error('The app stopped before the code finished');
+    } catch (err) {
+        result = { success: false, output: err.message };
+    }
+    live.remove();
+    showCodeResult(card, result.success, result.output || '');
+    stopBtn.hidden = true;
+    button.disabled = false;
+    button.textContent = '🔁 Run again';
+    card.querySelector('.btn-dismiss').hidden = false;
+    updateStats();
 }
 
 // ==================== SAVE A FILE ====================

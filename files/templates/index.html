@@ -23,6 +23,10 @@
                     title="Something went wrong? Downloads the last 5 minutes of logs (including your recent messages) to send to whoever helps you">
                 🐞 Problem? Get logs
             </button>
+            <button id="update-btn" class="btn-secondary btn-block" onclick="updateApp()"
+                    title="Download the newest version of the app from GitHub and restart. Chats, files and settings are kept.">
+                ⬆️ Update app
+            </button>
             <button class="btn-new-conv" onclick="newConversation()">➕ New Conversation</button>
 
             <hr>
@@ -202,6 +206,7 @@
     <script src="{{ url_for('static', filename='js/improve.js') }}"></script>
     <script src="{{ url_for('static', filename='js/models.js') }}"></script>
     <script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/update.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

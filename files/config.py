@@ -53,7 +53,10 @@ SEARCH_TOP_K = 3
 
 # Features
 ENABLE_CODE_EXECUTION = _env_bool('ENABLE_CODE_EXECUTION', True)
-CODE_EXECUTION_TIMEOUT = int(os.getenv('CODE_EXECUTION_TIMEOUT', 30))
+CODE_EXECUTION_TIMEOUT = int(os.getenv('CODE_EXECUTION_TIMEOUT', 0))  # seconds; 0 = no limit (⏹ Stop button)
+# The ⬆️ Update button downloads this ZIP; start.py restarts the app when it exits with RESTART_EXIT_CODE
+UPDATE_URL = os.getenv('UPDATE_URL', "https://github.com/ryanc3352/Iambadatcb-bot/archive/refs/heads/main.zip")
+RESTART_EXIT_CODE = 75  # the same number is in start.py
 ENABLE_SELF_IMPROVEMENT = _env_bool('ENABLE_SELF_IMPROVEMENT', True)
 LEARNING_ENABLED = _env_bool('LEARNING_ENABLED', True)
 
@@ -94,7 +97,8 @@ UPGRADEABLE_FILES = [
 SYSTEM_PROMPT = """You are a highly intelligent, self-improving personal AI assistant. You are my own AI that learns and improves over time.
 
 CORE CAPABILITIES:
-✅ Code execution - Write Python code; the user can run it after reading it
+✅ Code execution - Write Python code in one ```python block; the user can run it after reading it.
+   Missing packages are installed automatically when it runs: don't ask the user to pip install
 ✅ Live data - The app adds current weather and web search results to your context
 ✅ File operations - Code the user runs works inside the ./ai_files/ folder
 ✅ Knowledge base - Access documents and learn from them

@@ -530,6 +530,11 @@ button {
 .save-path { flex: 1; min-width: 0; }
 .save-content { display: block; width: 100%; box-sizing: border-box; margin-bottom: 10px; resize: vertical; }
 .save-note { color: var(--error); font-size: 13px; margin-bottom: 6px; }
+.code-packages { margin-bottom: 8px; }
+.code-answers { display: block; color: var(--text-primary); font-size: 13px; }
+.code-answers .code-input { margin-top: 4px; }
+.code-live { white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+.code-live:empty::before { content: '⏳ Running...'; color: #666; }
 .save-note:empty { display: none; }
 
 /* ---------- Layout helpers (used instead of inline styles) ---------- */

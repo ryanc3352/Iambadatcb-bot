@@ -66,7 +66,7 @@ def test_chat_roundtrip_and_prompt(client, fake_ollama):
     response = post(client, "/api/chat", {"message": "hello there"})
     assert response.status_code == 200
     assert response.get_json() == {"response": "Hello from the fake model!", "has_code": False, "code": None,
-                                   "files": []}
+                                   "packages": [], "files": []}
     assert sv.conversation_history.count_messages() == before + 2
 
     prompt = fake_ollama.last_prompt
@@ -157,7 +157,7 @@ def test_stream(client, fake_ollama):
     events = sse_events(post(client, "/api/chat-stream", {"message": "count"}))
     assert "".join(e.get("token", "") for e in events) == "one two three"
     assert events[-1] == {"done": True, "has_code": False, "code": None, "has_upgrade": False,
-                          "files": [], "error": None}
+                          "packages": [], "files": [], "error": None}
     assert sv.conversation_history.count_messages() == before + 2
 
 
@@ -269,15 +269,42 @@ def test_named_files_add_their_code(client, fake_ollama, monkeypatch):
 
 # ---------------- tools
 
+def run_code(client, body):
+    """The events of a code run; the last one has the result."""
+    return sse_events(post(client, "/api/execute-code", body))
+
+
 def test_execute_code(client, monkeypatch):
     runs = client.get("/api/stats").get_json()["code_runs"]
-    assert post(client, "/api/execute-code", {"code": "print(6*7)"}).get_json() == {"success": True, "output": "42"}
-    failed = post(client, "/api/execute-code", {"code": "raise ValueError('bad')"}).get_json()
+    events = run_code(client, {"code": "print(6*7)", "run_id": "abc"})
+    assert events[0] == {"run_id": "abc"}
+    assert {"output": "42\n"} in events
+    assert events[-1] == {"done": True, "success": True, "output": "42"}
+    failed = run_code(client, {"code": "raise ValueError('bad')"})[-1]
     assert failed["success"] is False and "ValueError: bad" in failed["output"]
     assert client.get("/api/stats").get_json()["code_runs"] == runs + 2
     assert post(client, "/api/execute-code", {"code": ""}).status_code == 400
     monkeypatch.setattr(routes_chat, "ENABLE_CODE_EXECUTION", False)
     assert post(client, "/api/execute-code", {"code": "print(1)"}).status_code == 403
+
+
+def test_execute_code_installs_packages_and_reads_answers(client, monkeypatch):
+    installed = []
+    monkeypatch.setattr(sv.code_executor, "install",
+                        lambda packages, run_id, report: (installed.extend(packages), (True, ""))[1])
+    done = run_code(client, {"code": "print(input())", "packages": ["requests", 5], "input": "hi"})[-1]
+    assert done == {"done": True, "success": True, "output": "📦 Installed requests\nhi"}
+    assert installed == ["requests"]
+
+
+def test_stop_code_when_nothing_runs(client):
+    assert post(client, "/api/stop-code", {"run_id": "nope"}).get_json() == {"success": False}
+
+
+def test_answers_offer_packages_with_code(client, fake_ollama):
+    fake_ollama.reply = "Install:\n```bash\npip install requests\n```\nThen:\n```python\nimport requests\n```"
+    data = post(client, "/api/chat", {"message": "get a web page"}).get_json()
+    assert data["has_code"] and data["code"] == "import requests" and data["packages"] == ["requests"]
 
 
 def test_history_and_stats(client):

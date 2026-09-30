@@ -81,6 +81,16 @@ def test_main_setup_only_and_failures(monkeypatch, capsys):
     assert "Python 3.12 or 3.13" in capsys.readouterr().out
 
 
+def test_app_restarts_after_an_update(monkeypatch):
+    exit_codes = [start.RESTART_EXIT_CODE, 0]
+    calls, setups = [], []
+    monkeypatch.setattr(start.subprocess, "call", lambda cmd, cwd, env: calls.append(env) or exit_codes.pop(0))
+    monkeypatch.setattr(start, "ensure_environment", lambda: setups.append(1))
+    assert start.run_assistant() == 0
+    assert len(calls) == 2 and setups == [1]  # new libraries installed between the two runs
+    assert calls[0]["AI_ASSISTANT_LAUNCHER"] == "start.py"
+
+
 def test_requirements_hash_changes_with_file(tmp_path, monkeypatch):
     reqs = tmp_path / "requirements.txt"
     reqs.write_text("flask\n")

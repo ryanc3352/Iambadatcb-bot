@@ -28,6 +28,7 @@ VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/pyth
 REQUIREMENTS = HERE / "requirements.txt"
 STAMP = VENV_DIR / "installed-requirements.sha256"
 MIN_PYTHON = (3, 10)
+RESTART_EXIT_CODE = 75  # web_server.py exits with this after the ⬆️ Update button (see config.py)
 DEFAULTS = {"MODEL_NAME": "mistral", "OLLAMA_URL": "http://localhost:11434", "HOST": "127.0.0.1", "PORT": "5000",
             "DATA_DIR": ""}
 
@@ -147,6 +148,17 @@ def open_browser_when_ready(url, attempts=120):
     return False
 
 
+def run_assistant():
+    """Run the web server; after an update, install any new libraries and start it again."""
+    env = dict(os.environ, AI_ASSISTANT_LAUNCHER="start.py")  # tells the app it can restart
+    while True:
+        code = subprocess.call([str(VENV_PYTHON), str(HERE / "web_server.py")], cwd=HERE, env=env)
+        if code != RESTART_EXIT_CODE:
+            return code
+        print("\n🔄 Restarting after the update ...")
+        ensure_environment()
+
+
 def main(args):
     try:
         ensure_environment()
@@ -159,7 +171,7 @@ def main(args):
         if "--no-browser" not in args:
             threading.Thread(target=open_browser_when_ready, args=(url,), daemon=True).start()
         print(f"Starting the assistant at {url}  (close this window or press Ctrl+C to stop)")
-        return subprocess.call([str(VENV_PYTHON), str(HERE / "web_server.py")], cwd=HERE)
+        return run_assistant()
     except KeyboardInterrupt:
         return 0
     except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
