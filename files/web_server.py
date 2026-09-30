@@ -2,14 +2,16 @@
 
 Start it with "Start AI.bat" (or python start.py), which sets everything up first.
 """
-from flask import Flask, jsonify, render_template
+import ipaddress
+
+from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
 import routes_chat
 import routes_files
 import routes_improve
 import routes_system
-from config import DEBUG, HOST, MAX_UPLOAD_MB, PORT
+from config import ALLOWED_HOSTS, DEBUG, HOST, MAX_UPLOAD_MB, PORT
 from llm_interface import LLMError
 from services import llm_interface, log
 
@@ -17,6 +19,32 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
 for routes in (routes_chat, routes_files, routes_improve, routes_system):
     app.register_blueprint(routes.bp)
+
+
+def host_allowed(host):
+    """True for an IP address, localhost or a name in ALLOWED_HOSTS (with or without a port)."""
+    host = host.lower()
+    if host.startswith("["):                       # [::1]:5000
+        name = host[1:host.find("]")]
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    if name == "localhost" or name in ALLOWED_HOSTS:
+        return True
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
+
+
+@app.before_request
+def only_this_pc():
+    """Refuse requests addressed to any other name. A web page can point its own domain at
+    127.0.0.1 ("DNS rebinding") and then talk to this app, which can run code and change files;
+    such requests still carry the page's domain name, so they are refused here."""
+    if not host_allowed(request.host):
+        log.warning("Refused a request for host %r", request.host[:100])
+        return jsonify({'error': 'This app only answers at its own address (e.g. http://127.0.0.1:5000).'}), 403
 
 
 WINDOWS_WRITE_HINT = ("Windows may be blocking Python from writing in this folder (Controlled folder access, "

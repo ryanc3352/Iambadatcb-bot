@@ -517,3 +517,23 @@ def test_every_upgradeable_file_can_be_shown_to_the_model():
     """Auto-Improve shows the model a whole file, so none may grow past the limit."""
     for name in config.UPGRADEABLE_FILES:
         assert (config.BASE_DIR / name).stat().st_size <= prompts.MAX_CODE_CONTEXT_CHARS, name
+
+
+# --- Only requests addressed to this PC (DNS rebinding) ---------------------------
+
+@pytest.mark.parametrize("host", ["127.0.0.1:5000", "localhost:5000", "LOCALHOST", "[::1]:5000", "192.168.1.20:5000"])
+def test_requests_to_this_pc_are_answered(client, host):
+    assert client.get("/", base_url=f"http://{host}/").status_code == 200
+
+
+@pytest.mark.parametrize("host", ["evil.example.com", "localhost.evil.com:5000", "127.0.0.1.nip.io:5000"])
+def test_requests_for_other_names_are_refused(client, host):
+    """A web page can point its own domain at 127.0.0.1 to reach this app, which can run code."""
+    assert client.get("/", base_url=f"http://{host}/").status_code == 403
+    response = client.post("/api/execute-code", json={"code": "print(1)"}, base_url=f"http://{host}/")
+    assert response.status_code == 403 and "print" not in response.get_data(as_text=True)
+
+
+def test_extra_host_names_can_be_allowed(client, monkeypatch):
+    monkeypatch.setattr(ws, "ALLOWED_HOSTS", ["my-pc.local"])
+    assert client.get("/", base_url="http://my-pc.local:5000/").status_code == 200

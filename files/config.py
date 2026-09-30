@@ -59,6 +59,8 @@ LEARNING_ENABLED = _env_bool('LEARNING_ENABLED', True)
 
 # Web server (keep HOST on 127.0.0.1: the app can run code and edit its own files)
 HOST = os.getenv('HOST', "127.0.0.1")
+# Names (besides IP addresses and localhost) the app may be opened by, e.g. ALLOWED_HOSTS=my-pc.local
+ALLOWED_HOSTS = [h.strip().lower() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip()]
 PORT = int(os.getenv('PORT', 5000))
 DEBUG = _env_bool('FLASK_DEBUG', False)
 MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', 200))

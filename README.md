@@ -74,6 +74,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `OLLAMA_URL` | `http://localhost:11434` | Where Ollama runs |
 | `PORT` | `5000` | Web page port |
 | `HOST` | `127.0.0.1` | Keep this: the app can run code and change its own files |
+| `ALLOWED_HOSTS` | (empty) | Extra names the app may be opened by (e.g. `my-pc.local`); IP addresses and `localhost` always work. Other names are refused, so a web page can't reach the app by pointing its own domain at your PC |
 | `DATA_DIR` | the `files` folder | Where chats, uploads, saved files, backups and logs are stored |
 | `MAX_UPLOAD_MB` | `200` | Largest upload (documents and folders) |
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
