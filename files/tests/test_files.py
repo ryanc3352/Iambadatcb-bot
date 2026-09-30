@@ -38,6 +38,22 @@ def test_clean_relative_path_rejects(raw):
         FileHandler.clean_relative_path(raw)
 
 
+def test_files_are_saved_exactly_as_written_even_on_windows(tmp_path, monkeypatch):
+    """Windows turns \\n into \\r\\n when writing text; saved files must match what the AI wrote."""
+    import pathlib
+    real = pathlib.Path.write_text
+
+    def windows_write_text(self, data, encoding=None, errors=None, newline=None):
+        if newline is None:  # what text mode does on Windows
+            data, newline = data.replace("\n", "\r\n"), ""
+        return real(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", windows_write_text)
+    fh = FileHandler(tmp_path)
+    fh.write_file("list.txt", "milk\neggs\n")
+    assert (tmp_path / "list.txt").read_bytes() == b"milk\neggs\n"
+
+
 def test_list_all_files_skips_internal(tmp_path):
     fh = FileHandler(tmp_path)
     fh.write_file("a.txt", "1")
@@ -86,8 +102,10 @@ def test_save_list_download_delete(client):
     assert client.get("/api/stats").get_json()["files"] == 1
 
     download = client.get("/api/files/download?path=shopping/list.txt")
-    assert download.status_code == 200 and download.get_data(as_text=True) == "milk\neggs 🥚"
-    assert "attachment" in download.headers["Content-Disposition"]
+    body, disposition = download.get_data(as_text=True), download.headers["Content-Disposition"]
+    download.close()  # the file stays open until then, and Windows can't delete an open file
+    assert download.status_code == 200 and body == "milk\neggs 🥚"
+    assert "attachment" in disposition
 
     assert client.delete("/api/files?path=shopping/list.txt").get_json()["success"]
     assert client.delete("/api/files?path=shopping/list.txt").status_code == 404

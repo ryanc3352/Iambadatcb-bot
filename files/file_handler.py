@@ -50,7 +50,8 @@ class FileHandler:
         """Write content to a file, creating parent folders if needed."""
         path = self._resolve(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding='utf-8')
+        # bytes, so Windows doesn't turn \n into \r\n: the file is exactly what was written
+        path.write_bytes(content.encode('utf-8'))
         return f"File written successfully: {path}"
 
     def list_all_files(self):

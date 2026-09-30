@@ -516,7 +516,17 @@ def test_prompt_tells_model_to_check_local_info_first(client, fake_ollama):
 def test_every_upgradeable_file_can_be_shown_to_the_model():
     """Auto-Improve shows the model a whole file, so none may grow past the limit."""
     for name in config.UPGRADEABLE_FILES:
-        assert (config.BASE_DIR / name).stat().st_size <= prompts.MAX_CODE_CONTEXT_CHARS, name
+        assert prompts.code_length(config.BASE_DIR / name) <= prompts.MAX_CODE_CONTEXT_CHARS, name
+
+
+def test_windows_line_endings_dont_make_a_file_too_big(tmp_path, monkeypatch):
+    """A Windows checkout has \\r\\n endings: more bytes, but the model gets the same text."""
+    text = "x = 1\n" * (prompts.MAX_CODE_CONTEXT_CHARS // 6)
+    (tmp_path / "calculator.py").write_text(text, encoding="utf-8", newline="\r\n")
+    assert (tmp_path / "calculator.py").stat().st_size > prompts.MAX_CODE_CONTEXT_CHARS
+    monkeypatch.setattr(routes_improve, "upgrade_manager", UpgradeManager(tmp_path, tmp_path / "b", ["calculator.py"]))
+    monkeypatch.setattr(routes_improve, "UPGRADEABLE_FILES", ["calculator.py"])
+    assert routes_improve.pick_improvement_target({"calculator.py": {"issues": ["x"]}}) == "calculator.py"
 
 
 # --- Only requests addressed to this PC (DNS rebinding) ---------------------------

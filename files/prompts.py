@@ -25,6 +25,11 @@ NOT_PLACES = {'a', 'an', 'my', 'your', 'our', 'their', 'this', 'that', 'some', '
 # Largest file whose code is added to the prompt when the user names it
 MAX_CODE_CONTEXT_CHARS = 12000
 
+
+def code_length(path):
+    """How many characters of a file the model sees: \\r\\n (Windows checkouts) counts as one."""
+    return len(path.read_text(encoding='utf-8', errors='replace'))
+
 FILE_WORDS = ['file', 'files', 'save', 'saved', 'note', 'notes', 'list', 'document', 'create', 'add',
               'folder', 'folders', 'directory', 'ai_files']
 

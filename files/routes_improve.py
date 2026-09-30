@@ -4,7 +4,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify
 
 from config import ENABLE_SELF_IMPROVEMENT, UPGRADEABLE_FILES
-from prompts import MAX_CODE_CONTEXT_CHARS
+from prompts import MAX_CODE_CONTEXT_CHARS, code_length
 from routes_common import json_body
 from services import analyzer, improver, learner, upgrade_manager
 
@@ -52,7 +52,7 @@ def pick_improvement_target(analyses):
         if not isinstance(analysis, dict) or 'issues' not in analysis:
             continue
         path = upgrade_manager.project_dir / name
-        size = path.stat().st_size if path.exists() else 0
+        size = code_length(path) if path.exists() else 0
         if 0 < size <= MAX_CODE_CONTEXT_CHARS and analysis['issues']:
             candidates.append((len(analysis['issues']), name))
     return max(candidates)[1] if candidates else None
