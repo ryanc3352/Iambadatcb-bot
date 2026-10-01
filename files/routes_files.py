@@ -125,7 +125,7 @@ def upload_folder():
 @bp.route('/api/folders/github', methods=['POST'])
 def add_github_folder():
     """🐙 Add from GitHub: download a repository and add it as a project folder"""
-    links = github_reader.links(str(json_body().get('url', '')))
+    links = [link for link in github_reader.links(str(json_body().get('url', ''))) if link[1]]  # repositories only
     if not links:
         return jsonify({'error': 'Paste a link like https://github.com/owner/repository'}), 400
     owner, repo = links[0][:2]

@@ -163,9 +163,11 @@ def build_prompt(user_input, extra_context=""):
     # to a new question but its answer is out of date
     live_context = get_live_context(user_input, found_locally=bool(doc_context))
     calculator_context = math_context(user_input)
-    github_context = github_reader.context_for(user_input)
-    code_context = get_code_context(user_input)
     recent_messages = conversation_history.get_last_n_messages(CONTEXT_MESSAGES)
+    # a follow-up about a GitHub link in the previous message still gets what the link points to
+    previous = next((m["content"] for m in reversed(recent_messages) if m["role"] == "User"), "")
+    github_context = github_reader.context_for(user_input, previous)
+    code_context = get_code_context(user_input)
     formatted_history = conversation_history.format_for_prompt(recent_messages)
     file_context = get_file_context(user_input, formatted_history)
     feedback = learner.get_feedback_guidance()

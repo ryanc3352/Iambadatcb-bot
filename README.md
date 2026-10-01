@@ -47,7 +47,7 @@ To stop it, close the black window.
 | **Exact maths** | Calculations (`1234*5678`, `15% of 240`, `sqrt(2)^10`, `5 times 6`) and equations (`solve 2x^2 + 3x - 2 = 0`, `3x + 5 = 20`) are worked out exactly by the app, including complex roots, and handed to the model. |
 | **Run code** | When an answer contains Python, a **Run** card appears. Code only runs when you click **Execute**. Missing packages are installed automatically (into the app's own `.venv`). Output shows as it comes, there's no time limit, and **⏹ Stop** ends a program. If the code asks questions with `input()`, type the answers in the box on the card first. Code runs in `files/ai_files` and can import the `.py` files saved there. A Python file the AI offers has **▶ Save & Run**, and saved `.py` files have a **▶** button under **📄 My Files**; both run the file in its own folder. |
 | **Update** | **⬆️ Update app** downloads the newest version from GitHub, replaces the changed app files and restarts. Chats, saved files, settings and documents are kept; the replaced files are copied to `backups/update-<date>`. |
-| **GitHub** | Paste a github.com link (a repository, a file, a folder or an issue) and the AI reads it before answering. Without a token GitHub allows 60 reads an hour; set `GITHUB_TOKEN` for more and for private repositories. |
+| **GitHub** | Paste a github.com link (a repository, a file, a folder, an issue, or a person's page for their list of repositories; `https://` is optional) and the AI reads it before answering. Tell it your GitHub name once ("my github is ann") and "my repos" or a repository's name ("what does my snake repo do?") works without a link. Without a token GitHub allows 60 reads an hour; set `GITHUB_TOKEN` for more and for private repositories. |
 | **Restart** | **🔄 Restart app** restarts the app (when it was started with `Start AI.bat`). |
 | **Learning** | Rate an answer with ⭐ and say what to change; later answers follow your feedback. **Learning Stats** shows what it has learned. |
 | **Self-improvement** | **Code Quality** checks its own code. **Auto-Improve** picks one file, shows the model the current code and asks for a fix. The model can send just the functions it changes: each replaces the old one and the rest of the file stays. You approve or reject each change; the old version is backed up and can be rolled back. Restart after an upgrade. |
@@ -82,6 +82,7 @@ All optional. Create a text file named `.env` in the `files` folder:
 | `ENABLE_CODE_EXECUTION` | `true` | Allow the Execute button |
 | `CODE_EXECUTION_TIMEOUT` | `0` | Seconds before running code is stopped; `0` means no limit |
 | `GITHUB_TOKEN` | (empty) | A GitHub token (github.com → Settings → Developer settings) for more GitHub reads and private repositories |
+| `GITHUB_USER` | (empty) | Your GitHub name, so "my repos" works without telling the AI first (otherwise it remembers the name you give it, or uses the token's account) |
 | `ENABLE_SELF_IMPROVEMENT` | `true` | Allow approved upgrades to change the code |
 | `LEARNING_ENABLED` | `true` | Save usage statistics and feedback |
 

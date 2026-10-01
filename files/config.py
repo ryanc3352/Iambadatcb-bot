@@ -56,6 +56,7 @@ ENABLE_CODE_EXECUTION = _env_bool('ENABLE_CODE_EXECUTION', True)
 CODE_EXECUTION_TIMEOUT = int(os.getenv('CODE_EXECUTION_TIMEOUT', 0))  # seconds; 0 = no limit (⏹ Stop button)
 # GitHub links in messages are read with this token if set (higher limit, private repositories)
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '').strip()
+GITHUB_USER = os.getenv('GITHUB_USER', '').strip()  # whose repositories "my repos" means
 
 # The ⬆️ Update button downloads this ZIP; start.py restarts the app when it exits with RESTART_EXIT_CODE
 UPDATE_URL = os.getenv('UPDATE_URL', "https://github.com/ryanc3352/Iambadatcb-bot/archive/refs/heads/main.zip")
@@ -103,7 +104,9 @@ CORE CAPABILITIES:
 ✅ Code execution - Write Python code in one ```python block; the user can run it after reading it.
    Missing packages are installed automatically when it runs: don't ask the user to pip install
 ✅ Live data - The app adds current weather and web search results to your context
-✅ GitHub - When the user sends a github.com link, the app reads it (README, files, issue) for you
+✅ GitHub - When the user sends a github.com link, the app reads it for you: a repository (README, files),
+   a file, an issue, or a person's page (github.com/<name>) for their list of repositories.
+   Once it knows the user's GitHub name, "my repos" or a repository's name works without a link
 ✅ File operations - Code the user runs works inside the ./ai_files/ folder
 ✅ Knowledge base - Access documents and learn from them
 ✅ Self-improvement - Analyze your own code and suggest upgrades
