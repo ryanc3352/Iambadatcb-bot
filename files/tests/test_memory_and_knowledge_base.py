@@ -163,3 +163,29 @@ def test_kb_document_start_joins_chunks(kb, tmp_path):
     kb.add_document(doc)
     start = kb.document_start("long.txt", max_chars=1200)
     assert start.startswith("0000 0001") and "0199 " in start and start.endswith("[...]")
+
+
+# ---------------- Knowledge packs (knowledge_packs/: Markdown that ships with the app)
+
+def test_knowledge_pack_one_passage_per_section_and_only_when_changed(kb, tmp_path):
+    pack = tmp_path / "packs" / "demo"
+    pack.mkdir(parents=True)
+    (pack / "guide.md").write_text("# Demo guide\n\nIntro.\n\n## First\nAlpha text.\n\n## Second\nBeta text.\n", encoding="utf-8")
+    assert kb.add_packs(tmp_path / "packs") == 1
+    stored = kb.collection.get(where={"source": "demo/guide.md"})["documents"]
+    assert sorted(stored) == ["Demo guide | ## First\nAlpha text.", "Demo guide | ## Second\nBeta text.",
+                              "Demo guide | Intro."]
+    assert kb.add_packs(tmp_path / "packs") == 0                    # unchanged: not indexed again
+    (pack / "guide.md").write_text("# Demo guide\n\n## Only\nGamma.\n", encoding="utf-8")
+    assert kb.add_packs(tmp_path / "packs") == 1
+    assert kb.collection.get(where={"source": "demo/guide.md"})["documents"] == ["Demo guide | ## Only\nGamma."]
+    assert kb.add_packs(tmp_path / "missing") == 0
+
+
+def test_the_gtnh_opencomputers_pack_answers_with_the_real_method_names(kb):
+    assert kb.add_packs() >= 6
+    found = kb.search_with_sources("opencomputers lua: how much EU is in my lapotronic supercapacitor LSC", top_k=3)
+    assert any(source == "gtnh-opencomputers/gregtech-machines.md" and "getStoredEU" in text for source, text in found)
+    found = kb.search_with_sources("write an opencomputers program that keeps steel plates stocked in my AE2 ME system", top_k=3)
+    assert any("getCraftables" in text for _, text in found)
+    assert kb.search_with_sources("what should I cook for dinner tonight", top_k=3) == []

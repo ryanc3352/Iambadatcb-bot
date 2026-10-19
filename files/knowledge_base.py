@@ -1,9 +1,12 @@
+import hashlib
 import re
 from pathlib import Path
 
 from memory import MIN_RELEVANCE, get_chroma_client, relevant_documents, similarity
 
 CHUNK_SIZE, CHUNK_OVERLAP = 500, 100
+# Knowledge packs: folders of Markdown files that ship with the app (e.g. GTNH + OpenComputers)
+PACKS_DIR = Path(__file__).resolve().parent / "knowledge_packs"
 
 # Questions about the documents themselves: "what's in my knowledge base?", "quiz me on the PDF I uploaded"
 DOCUMENT_WORDS = re.compile(r"\b(?:documents?|docs?|knowledge ?base|uploaded|uploads?|pdfs?|word files?)\b",
@@ -59,6 +62,40 @@ class KnowledgeBase:
             return False, f"Error indexing document: {e}"
 
         return True, f"✅ Document '{doc_name}' added ({len(chunks)} chunks)"
+
+    def add_packs(self, root=PACKS_DIR):
+        """Index every knowledge pack folder; returns how many files were (re)indexed."""
+        root = Path(root)
+        return sum(self.add_pack(folder) for folder in sorted(root.iterdir()) if folder.is_dir()) if root.is_dir() else 0
+
+    def add_pack(self, folder):
+        """Index a pack's Markdown files, one passage per "## " section (so an example program
+        isn't cut in half), each starting with the file's title. A file is indexed again only
+        when it changed. Returns how many files were (re)indexed."""
+        added = 0
+        for path in sorted(Path(folder).glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            doc_name = f"{Path(folder).name}/{path.name}"
+            try:
+                old = self.collection.get(where={"source": doc_name}, limit=1, include=["metadatas"])["metadatas"]
+            except Exception:
+                old = []
+            if old and old[0].get("hash") == digest:
+                continue
+            first, *sections = re.split(r"\n(?=## )", text)
+            title, _, intro = first.strip().partition("\n")
+            title = title.lstrip("#").strip()
+            chunks = [f"{title} | {part.strip()}" for part in [intro, *sections] if part.strip()] or [text]
+            try:
+                self.collection.delete(where={"source": doc_name})
+                self.collection.add(ids=[f"{doc_name}_{i}" for i in range(len(chunks))], documents=chunks,
+                                    metadatas=[{"source": doc_name, "hash": digest}] * len(chunks))
+            except Exception as e:
+                print(f"Knowledge pack {doc_name} not indexed: {e}")
+                continue
+            added += 1
+        return added
 
     # PDF/Word libraries are imported only when needed, so a missing or broken
     # install only affects those file types instead of stopping the whole app

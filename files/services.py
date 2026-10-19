@@ -34,6 +34,10 @@ llm_interface = LLMInterface(MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS, OL
 model_manager = ModelManager(llm_interface, USER_SETTINGS_PATH)
 memory = Memory(VECTOR_DB_PATH)
 knowledge_base = KnowledgeBase(VECTOR_DB_PATH)
+try:  # knowledge packs that ship with the app (knowledge_packs/), indexed again only when they change
+    log.info("Knowledge packs: %d file(s) indexed", knowledge_base.add_packs())
+except Exception as e:
+    log.warning("Knowledge packs not indexed: %s", e)
 code_executor = CodeExecutor(working_dir=AI_FILES_PATH, timeout=CODE_EXECUTION_TIMEOUT)
 file_handler = FileHandler(AI_FILES_PATH)
 folder_manager = FolderManager(AI_FILES_PATH)
